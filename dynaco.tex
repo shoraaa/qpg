@@ -1,0 +1,1507 @@
+\documentclass[sigconf,review]{acmart}
+
+%%
+%% \BibTeX command to typeset BibTeX logo in the docs
+\AtBeginDocument{%
+  \providecommand\BibTeX{{%
+    \normalfont B\kern-0.5em{\scshape i\kern-0.25em b}\kern-0.8em\TeX}}}
+
+%% Rights management information. 
+%% For review purposes, this block is standard.
+\setcopyright{acmlicensed}
+\copyrightyear{2026}
+\acmYear{2026}
+\acmDOI{XXXXXXX.XXXXXXX}
+
+%% These commands are for a PROCEEDINGS abstract or paper.
+% \acmConference[KDD '26]{Proceedings of the 32st ACM SIGKDD Conference on Knowledge Discovery and Data Mining}{August 3--7, 2025}{Long Beach, CA, USA}
+% \acmPrice{15.00}
+% \acmISBN{978-1-4503-XXXX-X/25/08}
+
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{bm}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage{cleveref}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{tabularx}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{hyperref}
+
+% ,  Custom Macros , 
+\newcommand{\TSP}{\textsc{TSP}}
+\newcommand{\CVRP}{\textsc{CVRP}}
+\newcommand{\ACO}{\textsc{ACO}}
+\newcommand{\DyNACO}{\textsc{DyNACO}}
+\newcommand{\MMAS}{\textsc{MMAS}}
+\newcommand{\VRP}{\textsc{VRP}}
+
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
+
+
+\begin{document}
+
+%% Title
+\title{Beyond Static Priors: Dynamic Neural Guidance for \\Large-Scale Ant Colony Optimization}
+% \title{DyNACO: Trajectory-Aware Neural Guidance \\ for Large-Scale Ant Colony Optimization}
+
+%%
+%% The "author" command and its associated commands are used to define
+%% the authors and their affiliations.
+%%
+\author{Dat Thanh Tran}
+\affiliation{%
+  \institution{College of Engineering and Computer Science, VinUniversity}
+  \city{Hanoi}
+  \country{Vietnam}
+}
+\email{dat.tt3@vinuni.edu.vn}
+
+%% For multiple authors, repeat the block:
+\author{Van Khu Vu}
+\affiliation{%
+  \institution{College of Engineering and Computer Science, VinUniversity}
+  \city{Hanoi}
+  \country{Vietnam}
+}
+\email{khu.vv@vinuni.edu.vn}
+
+\author{Yining Ma}
+\affiliation{%
+  \institution{Laboratory for Information and Decision Systems, Massachusetts Institute of Technology}
+  \city{Cambridge, MA}
+  \country{USA}
+}
+\email{yiningma@mit.edu}
+
+%%
+%% The abstract is a short summary of the work to be presented in the
+%% article. MUST be before \maketitle in ACM format.
+%%
+\begin{abstract}
+% Neural-guided Ant Colony Optimization (ACO) suffers from a fundamental training--inference misalignment: policies are typically trained to minimize cost in a single "one-shot" step, ignoring the iterative pheromone dynamics that drive ACO's success.
+
+% the policy learns to shift strategies, encouraging exploration when the colony is undecided and intensification when a promising basin is found.
+
+Neural-guided Ant Colony Optimization (ACO) suffers from a fundamental training-inference misalignment: policies are typically trained to generate static priors (e.g., heatmaps), yet deployed to guide iterative, long-horizon search processes. In this paper, we present DyNACO, a novel framework that achieves dynamic neural guidance by periodically observing the pheromone distribution and the incumbent solution. To make DyNACO tractable at scale, we pair the policy with a perturbation-based ACO backend and a scope-restricted refinement mechanism that jointly ensure efficiency and stable credit assignment. On TSP, DyNACO scales to 100,000-node instances and outperforms all neural baselines while often reducing total runtime compared to the unguided solver. We extend the framework to CVRP via a capacity-aware backend, consistently improving the unguided baseline with less than 1\% overhead. We further provide in-depth analysis validating the model's generalization capabilities and elucidating why dynamic guidance outperforms static priors. Our work underscores the necessity of aligning neural training with iterative search dynamics in learning-guided optimization. Our code is available at \url{https://anonymous.4open.science/r/DyNACO/}.
+% We propose trajectory-aware training, an objective that optimizes expected cost across the entire search history, enabling the policy to learn guidance that synergizes with, rather than ignores, the solver's evolving state. We implement this via DyNACO, a state-aware meta-policy that observes pheromone distribution shifts to steer a scalable, perturbation-based ACO backend. To ensure stable learning, we introduce scope-restricted refinement, a structural credit assignment mechanism that preserves gradient fidelity through large-scale local search. Empirically, DyNACO scales to 100,000-node TSP instances, achieving gaps below 1.7\% on instances up to 10K nodes and consistently outperforming prior neural baselines across all scales. We further demonstrate cross-problem adaptability by applying the fixed policy architecture to CVRP, validating that trajectory-aware guidance generalizes beyond its primary training domain.
+\end{abstract}
+
+%%
+%% The code below is generated by the tool at http://dl.acm.org/ccs.cfm.
+%% Required for KDD.
+%%
+\begin{CCSXML}
+<ccs2012>
+   <concept>
+       <concept_id>10010147.10010257.10010293.10010294</concept_id>
+       <concept_desc>Computing methodologies~Neural networks</concept_desc>
+       <concept_significance>500</concept_significance>
+   </concept>
+   <concept>
+       <concept_id>10003752.10003809.10003716.10011136.10011797.10011799</concept_id>
+       <concept_desc>Theory of computation~Ant colony optimization</concept_desc>
+       <concept_significance>500</concept_significance>
+   </concept>
+ </ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Computing methodologies~Sequential decision making}
+\ccsdesc[500]{Theory of computation~Ant colony optimization}
+
+%%
+%% Keywords. The author(s) should pick words that accurately describe
+%% the work being presented. Separate the keywords with commas.
+%%
+\keywords{Learning-guided Optimization, Ant Colony Optimization}
+
+%%
+%% This command processes the author and affiliation and title
+%% information and builds the first part of the formatted document.
+\maketitle
+
+
+
+% ======================================================================
+% 1. Introduction
+% ======================================================================
+\section{INTRODUCTION}
+
+Combinatorial optimization problems (COPs) such as the Traveling Salesman Problem (\TSP{}) and the capacitated Vehicle Routing Problem (\CVRP{}) have broad applications in logistics and network design~\cite{TSPAPP}.
+As NP-hard problems, they are typically tackled with heuristics.
+Classical solvers such as LKH-3~\cite{lkhtsp, lkhcvrp} and HGS~\cite{hgs} achieve near-optimal precision through decades of engineering, while recent Machine Learning (ML) based neural combinatorial optimization (NCO)~\cite{MLCO, RL4CO,neuopt,2optlearning} has emerged as a data-driven alternative. However, end-to-end NCO models often struggle with scalability, generalization, and a lack of convergence guarantees~\cite{RL4CO}. Learning-guided optimization (LGO)~\cite{learn2branch, learn2delegate, learn2optimize, neurolkh, li2023learning} bridges this gap by integrating neural signals into classical human solvers, which often achieves state-of-the-art performance by effectively combining the strengths of both paradigms~\cite{learn2delegate,deepaco,learn2seg,huang2024contrastive}.
+
+Among the LGO methods, learning to guide Ant Colony Optimization (ACO)~\cite{ACO, maxmin} serves as a foundational approach for steering meta-heuristics~\cite{deepaco,gtgaco}. ACO is a population-based metaheuristic where artificial ants construct solutions via probabilistic transitions biased by pheromone updates toward promising regions. In general, ACO factorizes the transition rule by combining dynamic pheromone updates with heuristic priors. While recent methods successfully learn to initialize such heuristic priors~\cite{deepaco,gfacs} or both heuristics and pheromone matrices~\cite{gtgaco}, they all share a critical flaw: they train a model to produce edge heuristics from instance geometry \emph{only once}, yielding static heatmaps, and then deploy this fixed signal inside a full ACO loop where pheromone dynamics evolve over hundreds of iterations.
+The model never observes pheromone during training and has no mechanism to adapt to it at inference.
+This \emph{training-inference misalignment} renders the neural signal blind to search progress: it applies identical guidance regardless of whether pheromones are near-uniform (early search) or concentrated around a local optimum (late search).
+% HeatACO~\cite{heataco} confirms that under this static paradigm the model architecture is interchangeable, suggesting that the static integration strategy itself is the limiting factor.
+
+Motivated by this, we propose \textbf{\DyNACO{}}, a framework that shifts from \emph{static} to \emph{dynamic} neural guidance. While prior methods train the model on a single snapshot of instance geometry and freeze the output, \DyNACO{} trains its policy on the \emph{full search trajectory}: the model repeatedly observes the evolving pheromone distribution and incumbent solution, and learns to emit guidance that is useful at every stage of the search, not just at initialization. To enable this, we design a specialized module to extract representations that summarize the current optimization status. 
+We formalize this as a \emph{semi-Markov Decision Process} in which a meta-policy periodically observes search state and emits updated edge-level guidance and trains \DyNACO{}  with a reinforcement learning algorithm.
+
+Another key limitation of the existing neural-guided ACO methods is the scalability.
+To make our \DyNACO{} tractable at scale, we consider pairing \DyNACO{} with a perturbation-based ACO backend on a sparse $K$-nearest-neighbor graph, which we refer to as a \emph{scope-restricted refinement} (SRR) mechanism.
+The resulting perturbations are localized, and our SRR aims to achieve three joint benefits: (1) Structural Credit Assignment, preserving the causal link between policy actions and rewards by confining refinement to a limited action neighborhood, akin to the trust region method in PPO~\cite{PPO}; (2) Convergent Refinement, ensuring local optimality within the perturbed region for stability; and (3) Cost-Independent Scalability, which reduces per-ant cost from $\mathcal{O}(n^2)$ to $\mathcal{O}(M \cdot K)$. This enables stable policy-gradient training feasible at 100K nodes.
+
+Extensive experiments on TSP and CVRP (1K–100K nodes) demonstrate that \DyNACO{} significantly outperforms existing learning-guided ACO baselines under matched budgets, while also surpassing established classical and neural baselines, especially on real-world large-scale instances. On TSP, neural guidance actually \emph{reduces} total runtime by 20--33\% compared to the unguided solver, because better-targeted perturbations lead to faster local-search convergence; on CVRP, the overhead remains below 1\%. Finally, we highlight the robust generalization performance of \DyNACO{} and conduct a series of in-depth analyses to reveal the learned guidance patterns and explain their superiority over static priors. In particular, the policy learns to actively counteract ACO stagnation~\cite{stagnation} by suppressing over-reinforced edges and redirecting search toward under-explored regions. Our work underscores the necessity of aligning neural training with iterative search dynamics in learning-guided optimization.
+
+% \noindent\textbf{Contributions.}
+Our contributions are as follows:
+(1)~We propose \DyNACO{}, the first framework for dynamic neural guidance in ACO. Formulated as a semi-MDP, it enables a meta-policy to inject updated guidance at regular intervals rather than committing to a single static prediction.
+(2)~We introduce scope-restricted refinement, which confines local search to the perturbation neighborhood, preserving gradient fidelity even on 100,000-node instances while achieving 2-opt optimality and stable credit assignment.
+(3)~We demonstrate that DyNACO scales to 100K nodes while reducing total runtime on TSP and adding less than 1\% overhead on CVRP. Zero-shot transfer experiments on TSPLIB and CVRPlib confirm cross-scale and cross-distribution generalization.
+
+% the desired generl that our \DyNACO{} framework transfers directly to CVRP without any architectural modification; only the backend's feasibility check changes (\Cref{sec:experiments}).
+
+% ======================================================================
+% 2. Related Work
+% ======================================================================
+\section{RELATED WORK}
+\label{sec:related-nco}
+% \smallskip\noindent\textbf{Classical solvers.}
+% The operations research community has developed highly effective solvers over decades, encoding generalizable knowledge in compact, well-understood forms (equations, algorithms, code).
+% Exact and local-search solvers such as LKH-3~\cite{lkhtsp, lkhcvrp} and HGS~\cite{hgs} offer near-optimal precision, while population-based metaheuristics such as Ant Colony Optimization (ACO)~\cite{ACO, maxmin} explore the solution space through pheromone-guided sampling.
+% These methods have been extensively tested in real-world conditions.
+% However, designing and tuning these solvers requires substantial domain expertise, adapting them to new problem variants or dynamic conditions is labor-intensive, and their hand-crafted decision rules can be overly rigid or locally short-sighted.
+
+
+\smallskip\noindent\textbf{End-to-end neural solvers.}
+Autoregressive construction models~\cite{pointernetwork,attentionmodel,pomo} and non-autoregressive heatmap models~\cite{bq,lehd,invit,sigd,l2c} learn policies directly from data, automating decision-rule discovery and enabling GPU-based batch evaluation.
+In principle, NCO can handle stochastic or dynamic settings without manual re-engineering.
+However, current methods suffer from large optimality gaps on hard instances, difficulty generalizing across problem sizes or distributions, and a lack of convergence guarantees.
+Scaling beyond a few thousand nodes remains challenging due to quadratic attention complexity and error accumulation (Appendix~\ref{app:constructive-limits}).
+
+\smallskip\noindent\textbf{Learning-guided optimization.}
+LGO~\cite{learn2branch,learn2delegate, learn2optimize, 2optlearning, neuopt, neurolkh} combines the strengths of both paradigms: the convergence guarantees and problem-specific structure of classical solvers, together with the data-driven adaptability of neural methods.
+Rather than replacing the solver, a neural network supplies signals while the solver retains its algorithmic backbone, mitigating the scalability limitations of end-to-end NCO and the rigidity of hand-crafted rules. 
+% ACO's factorized transition rule, provides a particularly clean interface for injecting learned guidance, making it a natural bridge to learning-guided optimization.
+
+\smallskip\noindent\textbf{Neural Guided ACO.}  Ant Colony Optimization (ACO)~\cite{ACO, maxmin} is a population-based metaheuristics that explores solution space through pheromone-guided sampling. Recent works integrate neural components into ACO through diverse mechanisms: DeepACO \cite{deepaco} and GtGACO \cite{gtgaco} employ GNNs and Transformers to learn initialization of the heuristic matrices and/or the pheromone matrices, GFACS \cite{gfacs} leverages GFlowNets for constructive sampling, and HeatACO \cite{heataco} utilizes pre-computed heatmaps as probabilistic priors. Despite these architectural distinctions, they all provide only static guidance that remains invariant to the search trajectory (Appendix~\ref{app:static-bottleneck}; see also Appendix~\ref{app:aco-background} for a discussion of adaptive ACO and its relationship to learned guidance).
+% Within ACO, neural-guided variants \cite{deepaco, gfacs, gtgaco, heataco} train a model to emit edge heuristics, but all are \emph{static} guidance.
+% Recent finding ~\cite{heataco} shows that the model architecture is interchangeable under this paradigm, suggesting that the static integration, rather than the model, is the limiting factor.
+% Training on post-LS rewards further compounds difficulties; DeepACO's Neural Local Search mitigates gradient washout but is impractical beyond a few thousand nodes.
+% \DyNACO{}'s trajectory-aware objective targets both the static-guidance and gradient-fidelity limitations.
+
+% \smallskip\noindent\textbf{Scaling combinatorial optimization.}
+% Decomposition~\cite{htsp,glop} and hierarchical construction~\cite{sil,elg} tackle large instances, while perturbation-based ACO~\cite{partialACO, faco, P-ACO} improve ACO scalability through sparse candidate graphs.
+% \DyNACO{} conditions on per-edge pheromone features and incumbent structure within a perturbation-based backend, enabling fine-grained, learned guidance at scales up to 100K nodes.
+
+% ======================================================================
+% 3. Methodology
+% ======================================================================
+\section{METHODOLOGY}
+\label{sec:method}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{overview.pdf}
+\caption{\emph{Comparison of training paradigms.} (a) The original DeepACO paradigm~\cite{deepaco}, which has been adopted by all subsequent works~\cite{gfacs, gtgaco}. (b) Our \DyNACO{} framework for dynamic neural guidance. (c) Trajectory-aware training aligns the training objective with iterative search dynamics. (d) State-aware representation enables formulating ACO as a semi-MDP, conditioning the policy on the evolving search state.}
+\label{fig:guidance-loop}
+\end{figure*}
+
+We consider Euclidean \TSP{} on $n$ nodes, seeking a tour $\pi$ minimizing $C(\pi)$; for \CVRP{}, we add vehicle capacity constraints.
+In standard ACO, transition probabilities are $p(j \mid i) \propto [\tau_{ij}]^\alpha [\eta_{ij}]^\beta$, where $\tau_{ij}$ is pheromone intensity and $\eta_{ij}$ is heuristic visibility.
+% \MMAS{}~\cite{maxmin} bounds pheromones to $[\tau_{\min}, \tau_{\max}]$ to prevent premature convergence.
+
+This section presents \DyNACO{}, a framework for \emph{dynamic neural guidance} in ACO (see \Cref{fig:guidance-loop} for an overview).
+Dynamic neural guidance is realized through two complementary mechanisms: (i)~a \emph{state-aware representation} that conditions the policy on the evolving pheromone distribution and incumbent solution, enabling it to adapt its output to the current search phase; and (ii)~a \emph{trajectory-aware training} objective that optimizes expected cost across the full search history, aligning the training signal with iterative search dynamics.
+To verify that dynamic neural guidance generalizes beyond unconstrained routing, we also design a novel capacity-aware perturbation-based ACO for CVRP, using the same policy architecture and training framework without modification.
+
+\subsection{ACO as a Semi-MDP}
+\label{sec:mdp}
+
+Prior neural-guided ACO methods~\cite{deepaco,gfacs,gtgaco} treat guidance as a \emph{one-shot prediction}: a network observes the instance graph, emits a static heatmap trained from a single pheromone-free sample of ants, and the solver then runs a full ACO loop, with pheromone dynamics, to completion without further interaction.
+The model is therefore trained without pheromone dynamics yet deployed with them, lacking any mechanism to account for search progress or to adapt its output over time.
+We address this discrepancy by formalizing \DyNACO{} as a two-level hierarchy in which a neural \emph{meta-policy} $\pi_\theta$ \emph{repeatedly} observes the macro-state and emits updated guidance signals, while the ACO backend executes $S$ sampling iterations between observations.
+The static paradigm precludes all three capabilities below: there is no state to condition on, no trajectory to replay, and no multi-step cost to optimize.  The semi-MDP formulation enables each of them:
+
+\begin{enumerate}
+\item \emph{Amortized policy updates.} The meta-policy emits logits once per guidance update, held constant over $S$ sampling iterations. This amortizes neural inference and allows per-iteration baselines (mean cost over ants) to reduce variance while the policy action remains fixed.
+\item \emph{PPO replay with stored state.} Treating the outer state as the MDP state identifies the quantities required for off-policy correction: pheromone snapshots, incumbent-derived edge features, and action traces suffice for recomputing importance ratios (Appendix~\ref{app:ppo-replay}).
+\item \emph{Trajectory-aware objective.} The cumulative cost $\sum_{h=1}^H C_h$ follows directly from the semi-MDP formulation, training the policy to remain effective across all search phases rather than optimizing a single-step surrogate.
+\end{enumerate}
+
+Formally, we model this as a \emph{semi-MDP with fixed-duration macro-actions}: each guidance update persists for exactly $S$ sampling iterations before the next state is observed.
+Given $(G, \tau^{(h,0)}, b^{(h)})$, the distribution of the next state is fully determined by the ACO procedure and its randomness.
+\begin{itemize}
+\item \emph{State} $\mathcal{S}_h = (G, \tau^{(h,0)}, b^{(h)})$: The macro-state at guidance update $h$ comprises the static instance graph $G$, the pheromone field $\tau^{(h,0)} \in \R^{n \times K}$ at the start of the guidance update, and the incumbent solution $b^{(h)}$.
+
+\item \emph{Action} $a_h = z_\theta(\mathcal{S}_h) \in \R^{n \times K}$: The meta-policy emits a residual logit matrix that shapes the sampling distribution over the candidate graph.
+
+\item \emph{Transition} $P(\mathcal{S}_{h+1} \mid \mathcal{S}_h, a_h)$: The environment executes $S$ sampling iterations of ACO (ant sampling, scope-restricted refinement, pheromone updates), yielding a stochastic, state-dependent transition kernel.
+
+\item \emph{Cost} $C_h = \frac{1}{S \cdot m} \sum_{s=1}^{S} \sum_{a=1}^{m} C(\hat{\pi}_{a,s})$: The average post refinement cost over the $S$ sampling iterations.  We minimize expected cumulative cost $\sum_{h=1}^H C_h$.
+\end{itemize}
+
+% ======================================================================
+% 3.2 The Perturbative Environment
+% ======================================================================
+\subsection{The Perturbative Environment}
+\label{sec:backend}
+
+Before defining the agent (policy), we describe the environment it operates in: a perturbation-based ACO backend that produces the stochastic transitions between macro-states.
+Two properties of this backend are essential to the overall framework: perturbative sampling decouples per-ant cost from instance size, and Scope-Restricted Refinement preserves gradient fidelity while achieving convergent local search.
+
+\smallskip\noindent\textbf{Perturbative Sampling.}
+In prior neural-guided ACO~\cite{deepaco,gfacs,gtgaco}, each ant constructs a complete tour from scratch: a sequence of $n$ edge selections, each involving a softmax over all candidates.
+This $\mathcal{O}(n)$-length construction is prohibitively expensive at scale and provides no natural anchor for localized refinement.
+We instead adopt perturbation-based ACO on a sparse $K$-nearest-neighbor candidate graph: each ant starts from the incumbent tour and modifies only a small subset of edges, reducing the action horizon from $O(n)$ to $O(M)$ with $M \ll n$.
+For \TSP{}, we adapt the perturbation-based ACO of~\cite{faco}; for \CVRP{}, we design a novel capacity-aware variant (Appendix~\ref{app:backend}).
+
+At sampling iteration $s$ of guidance update $h$, transition probabilities combine pheromones, heuristics, and neural guidance via a \emph{guidance weight} $\gamma$:
+\begin{equation}
+\log p^\theta(j \mid i; h, s) = \alpha \log \tau^{(h,s)}_{ij} + \beta \log \eta_{ij} + \gamma\, z_{ij}(\mathcal{S}_h).
+\label{eq:held-logits}
+\end{equation}
+During training $\gamma{=}1$ (constant forcing); at inference $\gamma$ may be annealed (see \Cref{sec:inference}).
+The policy outputs $z_\theta(\mathcal{S}_h)$ once per guidance update and holds it constant for $S$ sampling iterations, decoupling neural guidance (updated at guidance-update boundaries) from pheromone dynamics (updated at every sampling iteration).
+
+Prior neural-ACO methods~\cite{deepaco,gfacs,gtgaco} replace the heuristic term~$\eta_{ij}$ with neural output, discarding hand-crafted domain knowledge.
+We instead retain both $\tau_{ij}$ and $\eta_{ij}$ and introduce neural logits~$z_{ij}$ as a third, additive term in Eq.~\eqref{eq:held-logits}.
+This preserves the domain knowledge encoded in $\eta$ while letting the network provide complementary, state-dependent guidance.
+
+Formally, each ant initializes from the incumbent solution $b^{(h)}$ and executes up to $M$ relocation steps that introduce new edges.
+At each step, the ant samples a successor node $v$ from the set of unvisited candidates according to Eq.~\eqref{eq:held-logits}; edges $(u,v)$ absent from the incumbent are recorded for subsequent scope-restricted refinement (the full procedure is detailed in Appendix~\ref{app:perturbation}).
+The trajectory log-probability decomposes over stochastic decisions:
+\begin{equation}
+\log \pi_\theta(\pi_{a,s} \mid \mathcal{S}_h) = \sum_{t=1}^{T_a} \log p^\theta(v_t \mid u_t; h, s),
+\label{eq:logp-trajectory}
+\end{equation}
+where $T_a \le M$ denotes the number of stochastic edge selections, i.e., steps at which multiple candidates were feasible.
+This formulation reflects a fundamental shift in problem framing: constructive ACO selects all $n$ edges comprising a tour, whereas perturbative ACO identifies the subset of $M \ll n$ edges to modify.
+Consequently, the decision horizon is bounded by $M$ rather than $n$, preventing the error accumulation inherent in $O(n)$-length sequential construction and stabilizing policy learning at scale.
+The resulting localized perturbations further enable the scope-restricted refinement procedure described below.
+
+\smallskip\noindent\textbf{Scope-Restricted Refinement.}
+\label{sec:localized-ls}
+A well-known challenge in LGO is that powerful local search (LS) can obscure the neural policy's contribution.
+If LS radically rewrites the tour, the gradient signal connecting the policy's decision to the final reward becomes noisy, a phenomenon we term \emph{gradient washout} (Figure~\ref{fig:credit_assignment}).
+DeepACO~\cite{deepaco} addresses this via Neural Local Search (NLS), injecting neural priors into the swap operator, combined with truncated refinement that caps LS at $N/4$ swaps.
+However, this introduces a three-way trade-off: NLS imposes $O(N{\cdot}K)$ neural forward passes \emph{per ant} inside the LS loop, truncated LS prevents convergence to true local optima, and standard LS erases the gradient signal entirely.
+
+This computational burden is exacerbated at scale.
+Standard 2-opt refinement costs $O(N^2)$ per tour, making it prohibitive for every ant on every iteration at $N{=}100$K.
+Classical large-scale ACO~\citep{partialACO, P-ACO} mitigates this by applying LS \emph{sparingly} (every few iterations) and \emph{elitely} (only to the best or top-$k$ ants).
+However, policy-gradient training is incompatible with this strategy: computing per-ant advantages requires post-LS costs for \emph{every} ant at \emph{every} iteration.
+Restricting LS iterations (e.g., capping swaps at a fixed budget) reduces cost but at the expense of solution quality; moreover, even a modest cap still scales with $N$ rather than with the perturbation size.
+
+In contrast, the perturbation-based backend enables Scope Restricted Refinement (SRR)~\cite{faco}.
+The key insight is that the incumbent solution is generally already locally optimal.
+When an ant perturbs this solution, it creates a localized region of sub-optimality.
+SRR operates as a targeted repair mechanism, conceptually similar to a Breadth-First Search (BFS), that propagates improvements outward from the perturbed edges only.
+Unlike DeepACO's truncation strategy, SRR runs to convergence within its scope.
+Because the unperturbed regions of the tour were already optimized under the candidate graph, repairing the perturbed region restores 2-opt optimality with respect to the candidate-graph move set.
+
+SRR simultaneously provides three properties that existing designs achieve only in isolation:
+\begin{enumerate}
+    \item \emph{Structural Credit Assignment}: By confining refinement to the neighborhood of the policy's actions, SRR preserves the causal link between neural decisions and rewards, achieving the same gradient fidelity as NLS without incurring neural forward passes during refinement.
+    \item \emph{Convergent Refinement}: Unlike truncated LS, SRR runs to convergence within its scope.  The resulting tour is 2-opt optimal with respect to the candidate-graph move set within the perturbed region, which suffices because unperturbed segments were already locally optimal.
+    \item \emph{Cost-Independent Scalability}: Refinement cost scales with the perturbation size $O(M{\cdot}K)$, not the instance size $N$.  Unlike standard 2-opt ($O(N^2)$ per tour), SRR can be applied to \emph{every} ant at \emph{every} iteration (a requirement for policy-gradient training), even at $N{=}100$K.
+\end{enumerate}
+\noindent SRR thus combines the computational efficiency of truncated LS with the gradient fidelity of NLS by guaranteeing that unperturbed regions remain locally optimal, so convergent refinement within the perturbation scope is both sufficient and inexpensive (formal optimality argument in Appendix~\ref{app:credit}; NLS cost analysis in Appendix~\ref{app:nls-analysis}).
+
+\smallskip\noindent\textbf{Stabilized Pheromone Dynamics.}
+\label{sec:smoothed-mmas}
+\MMAS{}~\cite{maxmin} bounds pheromones to $[\tau_{\min}, \tau_{\max}]$ to prevent premature convergence, but couples pheromone bounds to solution cost, creating non-stationary input distributions.
+We adopt fixed bounds ($\tau_{\max}=1$, $\tau_{\min}=1/K$) and update via convex interpolation:
+\begin{equation}
+\tau^{(h,s+1)}_{ij} \leftarrow (1-\rho)\tau^{(h,s)}_{ij} + \rho \cdot \mathcal{T}_{ij},
+\label{eq:smoothed-mmas}
+\end{equation}
+where $\mathcal{T}_{ij} = \tau_{\max}$ if $(i,j)$ is in the best solution, else $\tau_{\min}$.
+This yields scale-invariant state representations and stabilizes training.
+While this simplification may reduce the solution quality of the \emph{unguided} solver compared to highly tuned \MMAS{} dynamics, our ablations (\Cref{sec:ablations}) show that DyNACO with stabilized bounds outperforms both (i)~unguided ACO with standard \MMAS{} updates and (ii)~neural-guided ACO retaining the original update rule.
+
+% ======================================================================
+% 3.3 State-Aware Policy and Training
+% ======================================================================
+\subsection{Dynamic Neural Guidance}
+\label{sec:agent}
+
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{nls_vs_limited_vs_unconstrained.pdf}
+    \caption{The gradient washout trade-off: three LS strategies for training DeepACO on TSP-200.}
+    \label{fig:credit_assignment}
+\end{figure}
+
+\smallskip\noindent\textbf{State-Aware Representation.}
+\label{sec:state}
+Prior neural-ACO methods condition solely on \emph{static} instance geometry, producing guidance that cannot account for the solver's current state.
+The semi-MDP state $\mathcal{S}_h = (G,\, \tau^{(h,0)},\, b^{(h)})$ defined in \Cref{sec:mdp} identifies the two quantities that evolve between guidance updates: the pheromone field~$\tau$ and the incumbent solution~$b$.
+These are precisely the signals ACO already maintains; conditioning on them enables the semi-MDP formulation and renders guidance \emph{dynamic}.
+We derive six edge-level features from $\tau$ and $b$, capturing pheromone concentration, local convergence, incumbent topology, and scale-invariant distance (Appendix~\ref{app:state-features}).
+These features are processed by a 12-layer GNN encoder~\cite{deepaco} with interleaved node and edge message-passing.
+All inputs are $O(n \cdot K)$, ensuring that state-aware conditioning remains tractable at scale.
+
+The policy outputs a scalar guidance score $z_{ij}$ for each candidate edge via a 3-layer MLP decoder.
+The shaped transition kernel adds these logits in log-space (Eq.~\ref{eq:held-logits}), corresponding to a KL-regularized policy where $p^\theta(\cdot\mid i) \propto q(j\mid i)\exp(z_{ij})$.
+Because $\tau_{\min} > 0$ and logits remain finite, every candidate retains positive probability; the policy redistributes mass but cannot exclude edges.
+\begin{algorithm}[t]
+\caption{PPO training for \DyNACO{}.}
+\label{alg:train}
+\begin{algorithmic}[1]
+\REQUIRE $\theta$ (policy params), $E$ (epochs), $H$ (outer steps), $S$ (inner steps), $K_{\text{PPO}}$ (PPO epochs), $m$ (ants)
+\FOR{$e = 1 \to E$}
+    \STATE $x \sim \mathcal{X}$; \, $\tau^{(1,0)} \gets \tau_{\max}$; \, $b^{(1)} \gets \textsc{Greedy}(x)$
+    \FOR{$h = 1 \to H$}
+        \STATE $z \gets z_{\theta_{\text{old}}}(\mathcal{S}_h)$; \, $\mathcal{D}_h \gets \emptyset$
+            \COMMENT{Outer: emit guidance}
+        \FOR{$s = 1 \to S$}
+            \STATE $\{\pi_{a,s}\}_{a=1}^m \gets \textsc{Sample}(p^\theta, \tau^{(h,s)}, z, b^{(h)})$
+                \COMMENT{Inner: ACO sampling}
+            \STATE $\mathcal{D}_h \gets \mathcal{D}_h \cup \{(\tau^{(h,s)}, \{\pi_{a,s}\}, \{C(\hat{\pi}_{a,s})\})\}$
+            \STATE $a^* \gets \argmin_a C(\hat{\pi}_{a,s})$; \, $b^{(h)} \gets \min(b^{(h)}, \hat{\pi}_{a^*,s})$
+            \STATE $\tau^{(h,s+1)} \gets (1{-}\rho)\tau^{(h,s)} + \rho \cdot \Delta\tau(b^{(h)})$
+        \ENDFOR
+        \STATE $\tau^{(h+1,0)} \gets \tau^{(h,S)}$; \, $b^{(h+1)} \gets b^{(h)}$
+        \FOR{$k = 1 \to K_{\text{PPO}}$}
+            \STATE $\theta \gets \theta - \nabla_\theta \mathcal{L}^{\text{PPO}}(\theta; \mathcal{D}_h, z_\theta(\mathcal{S}_h))$
+                \COMMENT{PPO update}
+        \ENDFOR
+    \ENDFOR
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+
+
+\smallskip\noindent\textbf{Trajectory-Aware Training.}
+\label{sec:training}
+Prior methods~\cite{deepaco,gfacs,gtgaco} optimize a \emph{single-step} objective: $\min_\theta \mathbb{E}_{\pi \sim p_\theta(\cdot \mid G)} [ C(\pi) ]$, where ants sample once from the neural heuristic alone.
+At inference, however, the same static heatmap is inserted into a full ACO loop where pheromone fields evolve over hundreds of iterations.
+This discrepancy precludes learning adaptive behavior: because training never exposes the model to pheromone dynamics, the heatmap inevitably conflicts with the pheromone landscape in later iterations.
+
+We instead optimize the expected per-iteration post-SRR cost across the full trajectory.
+Let $\hat{\pi}_{a,s} = \mathrm{LS}(\pi_{a,s})$ denote the tour produced by ant $a$ at sampling iteration $s$ after local search:
+\begin{equation}
+J(\theta) = \mathbb{E} \left[ \frac{1}{T} \sum_{h=1}^H \sum_{s=1}^S \frac{1}{m} \sum_{a=1}^m C(\hat{\pi}_{a,s}) \right].
+\end{equation}
+This \emph{trajectory-aware} objective averages cost over all $T = H \times S$ iterations, training the policy to remain effective from early exploration through late exploitation and minimizing the area under the cost curve rather than a single endpoint.
+
+Under perturbative sampling each ant modifies at most $M$ edges, and the log-probability of its trajectory is the sum over stochastic edge choices.
+Because the number of stochastic decisions $T_a$ varies across ants (deterministic steps with a single feasible candidate contribute $\log p = 0$), we normalize by decision count: $\bar{\ell}_{a,s} = \frac{1}{T_a} \sum_{t=1}^{T_a} \log p^\theta(v_t \mid u_t)$.
+This per-decision normalization prevents ants with more stochastic steps from dominating the gradient.
+We compute a per-iteration baseline $b_s = \frac{1}{m}\sum_{a=1}^{m} C(\hat{\pi}_{a,s})$ and define advantage as $A_{a,s} = b_s - C(\hat{\pi}_{a,s})$, so that better-than-average tours receive positive advantage.
+For PPO we normalize advantages across the batch: $\hat{A}_{a,s} = (A_{a,s} - \mu_A) / (\sigma_A + \epsilon)$.
+
+
+\begin{table*}[t]
+\centering
+\caption{Comparative results on synthetic \TSP{} and \CVRP{} instances. OOM: out of memory.}
+\label{tab:main-results}
+\small
+\renewcommand{\arraystretch}{0.8}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lcccccccccc}
+\toprule
+& \multicolumn{2}{c}{\TSP{}1K} & \multicolumn{2}{c}{\TSP{}5K} & \multicolumn{2}{c}{\TSP{}10K} & \multicolumn{2}{c}{\TSP{}50K} & \multicolumn{2}{c}{\TSP{}100K} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7} \cmidrule(lr){8-9} \cmidrule(lr){10-11}
+Method & Obj.\ (Gap) & Time & Obj.\ (Gap) & Time & Obj.\ (Gap) & Time & Obj.\ (Gap) & Time & Obj.\ (Gap) & Time \\
+\midrule
+LKH3 & 23.12 (0.00\%) & 1.70m & 50.97 (0.00\%) & 12.00m & 71.78 (0.00\%) & 33.00m & 159.93 (0.00\%) & 10.00h & 225.99 (0.00\%) & 25.00h \\
+\midrule
+H-TSP & 24.66 (6.66\%) & 48.00s & 55.16 (8.22\%) & 1.20m & 77.75 (8.32\%) & 2.20m & OOM & OOM & OOM & OOM \\
+GLOP & 23.78 (2.85\%) & 10.20s & 53.15 (4.28\%) & 1.00m & 75.04 (4.54\%) & 1.90m & 168.09 (5.10\%) & 1.50m & 237.61 (5.14\%) & 3.90m \\
+INViT-3V greedy & 24.66 (6.66\%) & 9.00s & 54.49 (6.91\%) & 1.20m & 76.85 (7.06\%) & 3.70m & 171.42 (7.18\%) & 1.30h & 242.26 (7.20\%) & 5.00h \\
+L2C-Insert greedy & 24.22 (4.75\%) & 0.16s & -- & - & 77.34 (7.75\%) & 3.98s & 171.78 (7.41\%) & 19.80s & 242.76 (7.42\%) & 39.49s \\
+SIL greedy & 23.57 (1.94\%) & 0.20s & 52.59 (3.18\%) & 5.20s & 74.69 (4.05\%) & 20.10s & 168.50 (5.36\%) & 7.70m & 239.84 (6.13\%) & 33.00m \\
+POMO aug×8 & 32.51 (40.61\%) & 4.10s & 87.72 (72.10\%) & 8.60m & OOM & OOM & OOM & OOM & OOM & OOM \\
+BQ bs16 & 23.43 (1.34\%) & 13.00s & 58.27 (14.32\%) & 24.00s & OOM & OOM & OOM & OOM & OOM & OOM \\
+SIGD bs16 & 23.36 (1.04\%) & 17.30s & 55.77 (9.42\%) & 30.50m & OOM & OOM & OOM & OOM & OOM & OOM \\
+LEHD RRC$_{1000}$ & 23.29 (0.74\%) & 3.30m & 54.43 (6.79\%) & 8.60m & 80.90 (12.71\%) & 18.60m & OOM & OOM & OOM & OOM \\
+L2C-Insert (I$_{1000}$) & 23.23 (0.48\%) & 21.75s & -- & - & 73.27 (2.08\%) & 1.04m & 166.06 (3.83\%) & 1.30m & 237.11 (4.92\%) & 1.63m \\
+SIL PRC$_{10}$ & 23.40 (1.19\%) & 0.90s & 52.36 (2.73\%) & 5.10s & 73.99 (3.08\%) & 10.00s & 166.69 (4.23\%) & 1.33m & 235.38 (4.16\%) & 3.00m \\
+SIL PRC$_{1000}$ & 23.21 (0.38\%) & 1.50m & 51.67 (1.37\%) & 9.40m & 73.08 (1.81\%) & 17.00m & 163.95 (2.51\%) & 1.38h & 231.52 (2.45\%) & 2.60h \\
+\midrule
+ACO I$_{1000}$ & 23.31 (0.83\%) & 0.54s & 52.12 (2.26\%) & 1.54s & 73.80 (2.82\%) & 2.66s & 168.17 (5.15\%) & 11.86s & 241.26 (6.76\%) & 25.02s \\
+ACO I$_{2000}$ & 23.28 (0.70\%) & 1.08s & 51.98 (1.98\%) & 3.11s & 73.54 (2.46\%) & 5.30s & 166.25 (3.95\%) & 23.07s & 237.53 (5.10\%) & 47.56s \\
+ACO I$_{5000}$ & 23.25 (0.55\%) & 2.72s & 51.88 (1.78\%) & 7.74s & 73.33 (2.15\%) & 13.41s & 164.90 (3.11\%) & 56.43s & 234.33 (3.69\%) & 1.89m \\
+ACO I$_{10000}$ & 23.23 (0.48\%) & 5.44s & 51.81 (1.65\%) & 15.59s & 73.23 (2.02\%) & 26.81s & 164.38 (2.78\%) & 1.87m & 233.04 (3.12\%) & 3.72m \\
+\midrule
+DyNACO I$_{1000}$ & 23.24 (0.52\%) & 0.37s & 51.63 (1.30\%) & 1.19s & 72.92 (1.59\%) & 1.94s & 167.36 (4.64\%) & 9.50s & 241.20 (6.73\%) & 21.52s \\
+DyNACO I$_{2000}$ & 23.21 (0.39\%) & 0.73s & 51.52 (1.08\%) & 2.23s & 72.67 (1.24\%) & 3.72s & 164.58 (2.91\%) & 17.31s & 236.68 (4.73\%) & 38.45s \\
+DyNACO I$_{5000}$ & 23.18 (0.27\%) & 1.85s & 51.41 (0.86\%) & 5.30s & 72.48 (0.97\%) & 9.06s & 162.66 (1.71\%) & 40.64s & 232.07 (2.69\%) & 1.48m \\
+DyNACO I$_{10000}$ & \textbf{23.17} (\textbf{0.20\%}) & 3.68s & \textbf{51.35} (\textbf{0.75\%}) & 10.42s & \textbf{72.37} (\textbf{0.82\%}) & 17.89s & \textbf{161.93} (\textbf{1.25\%}) & 1.33m & \textbf{230.28} (\textbf{1.90\%}) & 2.86m \\
+\midrule
+\midrule
+& \multicolumn{2}{c}{\CVRP{}1K} & \multicolumn{2}{c}{\CVRP{}5K} & \multicolumn{2}{c}{\CVRP{}10K} & \multicolumn{2}{c}{\CVRP{}50K} & \multicolumn{2}{c}{\CVRP{}100K} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7} \cmidrule(lr){8-9} \cmidrule(lr){10-11}
+Method & Obj.\ (Gap) & Time & Obj.\ (Gap) & Time & Obj.\ (Gap) & Time & Obj.\ (Gap) & Time & Obj.\ (Gap) & Time \\
+\midrule
+HGS & 36.29 (0.00\%) & 2.50m & 89.74 (0.00\%) & 2.00h & 107.40 (0.00\%) & 5.00h & 267.73 (0.00\%) & 8.10h & 476.11 (0.00\%) & 24.00h \\
+GLOP-G (LKH3) & 39.50 (8.85\%) & 1.30s & 98.90 (10.21\%) & 6.80s & 116.28 (8.27\%) & 11.20s & OOM & OOM & OOM & OOM \\
+\midrule
+POMO aug×8 & 84.89 (133.92\%) & 4.80s & 393.27 (338.23\%) & 11.00m & OOM & OOM & OOM & OOM & OOM & OOM \\
+LEHD RRC$_{1000}$ & 37.43 (3.14\%) & 3.40m & 101.07 (12.63\%) & 31.00m & 138.73 (29.17\%) & 41.00m & OOM & OOM & OOM & OOM \\
+BQ bs16 & 38.17 (5.18\%) & 14.00s & 104.40 (16.34\%) & 2.60m & OOM & OOM & OOM & OOM & OOM & OOM \\
+SIGD bs16 & 39.15 (7.88\%) & 17.30s & 103.46 (15.29\%) & 1.91m & 131.48 (22.42\%) & 3.97m & 477.43 (78.33\%) & 25.90m & OOM & OOM \\
+INViT-3V greedy & 42.75 (17.80\%) & 11.40s & 109.85 (22.41\%) & 1.40m & 141.41 (31.67\%) & 4.20m & 402.05 (50.17\%) & 2.90h & 688.80 (44.67\%) & 8.30h \\
+LEHD greedy & 38.91 (7.22\%) & 0.80s & 105.61 (17.68\%) & 1.56m & 146.24 (36.16\%) & 11.85m & OOM & OOM & OOM & OOM \\
+L2C-Insert greedy & 39.69 (9.36\%) & 0.41s & 109.45 (21.96\%) & 3.30s & 147.98 (37.78\%) & 6.64s & 419.51 (56.69\%) & 33.83s & 722.17 (51.68\%) & 1.14m \\
+L2C-Insert I$_{1000}$ & 38.33 (5.63\%) & 43.59s & 103.60 (15.45\%) & 1.21m & 135.77 (26.42\%) & 1.27m & 389.86 (45.62\%) & 1.74m & 692.95 (45.54\%) & 2.38m \\
+SIL PRC$_{10}$ & 37.93 (4.52\%) & 0.70s & 93.92 (4.66\%) & 3.90s & 112.17 (4.44\%) & 6.80s & 285.20 (6.53\%) & 28.00s & 496.24 (4.23\%) & 59.00s \\
+SIL PRC$_{1000}$ & 37.28 (2.73\%) & 1.50m & \textbf{90.81} (\textbf{1.19\%}) & 8.80m & \textbf{106.69} (\textbf{-0.66\%}) & 15.20m & \textbf{262.82} (\textbf{-1.83\%}) & 1.04h & \textbf{463.95} (\textbf{-2.55\%}) & 2.17h \\
+\midrule
+ACO I$_{1000}$ & 37.48 (3.28\%) & 2.03s & 97.00 (8.09\%) & 4.21s & 119.78 (11.53\%) & 7.32s & 303.58 (13.39\%) & 31.73s & 528.31 (10.96\%) & 1.15m \\
+ACO I$_{2000}$ & 37.27 (2.71\%) & 4.04s & 95.88 (6.84\%) & 8.43s & 118.24 (10.10\%) & 14.71s & 299.46 (11.85\%) & 1.06m & 523.14 (9.88\%) & 2.30m \\
+ACO I$_{5000}$ & 37.09 (2.20\%) & 10.09s & 94.73 (5.57\%) & 21.10s & 116.07 (8.08\%) & 15.87s & 294.24 (9.90\%) & 2.68m & 516.05 (8.39\%) & 5.77m \\
+ACO I$_{10000}$ & 36.96 (1.85\%) & 20.17s & 93.76 (4.48\%) & 42.26s & 114.66 (6.76\%) & 1.24m & 290.70 (8.58\%) & 5.38m & 510.70 (7.26\%) & 11.55m \\
+\midrule
+DyNACO I$_{1000}$ & 37.30 (2.79\%) & 1.79s & 95.92 (6.89\%) & 4.28s & 119.26 (11.04\%) & 7.93s & 302.10 (12.84\%) & 34.73s & 525.91 (10.46\%) & 1.18m \\
+DyNACO I$_{2000}$ & 37.11 (2.26\%) & 3.56s & 94.92 (5.78\%) & 8.46s & 117.90 (9.78\%) & 15.87s & 299.17 (11.74\%) & 1.16m & 521.58 (9.55\%) & 2.37m \\
+DyNACO I$_{5000}$ & 36.80 (1.42\%) & 9.58s & 93.70 (4.41\%) & 21.37s & 115.37 (7.42\%) & 38.30s & 293.35 (9.57\%) & 2.84m & 513.55 (7.86\%) & 5.86m \\
+DyNACO I$_{10000}$ & \textbf{36.67} (\textbf{1.04\%}) & 19.05s & 92.75 (3.36\%) & 42.87s & 113.89 (6.04\%) & 1.28m & 289.87 (8.27\%) & 5.60m & 508.23 (6.75\%) & 11.70m \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+We optimize using PPO with trajectory replay.
+After collecting trajectories for $S$ sampling iterations under $\pi_{\theta_{\text{old}}}$, we perform $K_{\text{PPO}}$ optimization epochs using the clipped surrogate:
+\begin{multline}
+\mathcal{L}^{\text{PPO}}(\theta) = -\mathbb{E}_{a,s}\Big[ \min\big( r_{a,s}(\theta) \hat{A}_{a,s}, 
+\text{clip}(r_{a,s}(\theta), 1{\pm}\epsilon) \hat{A}_{a,s} \big) \Big],
+\end{multline}
+where $r_{a,s}(\theta) = \pi_\theta(\pi_{a,s} | \mathcal{S}_h) / \pi_{\theta_{\text{old}}}(\pi_{a,s} | \mathcal{S}_h)$, $\epsilon=0.1$, and $\hat{A}_{a,s}$ is the normalized advantage.
+We store pheromone snapshots and action traces for efficient probability ratio computation (Appendix~\ref{app:ppo-replay}); the full procedure is given in Algorithm~\ref{alg:train}.
+
+
+
+\subsection{Inference Strategy}
+\label{sec:inference}
+Training always uses constant guidance ($\gamma{=}1$) over the full trajectory, with no annealing or phased scheduling.
+At inference, the guidance weight~$\gamma$ (Eq.~\ref{eq:held-logits}) can be modulated via two strategies: \emph{guidance annealing}, which linearly decays $\gamma \to 0$ across inner iterations; and \emph{phased injection}, which withholds neural guidance for the first fraction of outer steps.
+The specific configuration varies by problem and scale: for TSP, we apply annealing at all scales and additionally enable phased injection at TSP-1K; for CVRP, we apply phased injection only at longer iteration budgets ($I{\geq}5000$) and never anneal.
+Full details and ablations are in Appendix~\ref{app:inference}.
+
+
+
+
+% ======================================================================
+% 4. Experiments
+% ======================================================================
+\section{EXPERIMENTS}
+\label{sec:experiments}
+
+We evaluate \DyNACO{} on large-scale TSP and CVRP instances (1K--100K nodes), comparing against classical solvers, construction-based neural methods, and neural-ACO baselines.
+
+
+\smallskip\noindent\textbf{Setup.}
+All experiments use a fixed random seed for reproducibility.
+Training uses on-policy generation (320 instances total, 32 per epoch $\times$ 10 epochs) with PPO ($K_{\text{PPO}}{=}4$, $\epsilon{=}0.1$, lr $5{\times}10^{-6}$) on a single RTX 5090 and Ryzen 9 7950X 16 Cores.
+Hyperparameters and baseline configurations are in Appendix~\ref{app:repro}.
+
+% ----------------------------------------------------------------------
+\smallskip\noindent\textbf{Dataset}
+Training instances are generated online: coordinates are drawn uniformly from $[0,1]^2$, yielding 320 total instances (32 per epoch $\times$ 10 epochs).
+For evaluation, we follow standard approach in literature~\cite{attentionmodel, pomo, lehd, sil} and directly use their benchmark datasets: instances at scales 1K, 5K, and 10K originate from the datasets established in prior work~\cite{attentionmodel, pomo, lehd}, while the 50K and 100K instances were generated by \cite{sil}.
+Each benchmark comprises 128 instances at the 1K scale and 16 instances at every larger scale (5K, 10K, 50K, 100K); all reported objectives and gaps are averaged over the corresponding instance set.
+For CVRP, demands are sampled uniformly from $\{1,\ldots,9\}$ with capacity $Q$ scaled by problem size ($Q{=}50/250/500/1000/2000$ at 1K/5K/10K/50K/100K).
+All experiments use a fixed random seed (1234) for reproducibility; reported values correspond to deterministic single-run evaluations under this seed.
+The candidate graph is a symmetric $K$-NN graph with $K{=}32$, with ties broken by node index; a backup list of $64$ additional neighbors is maintained for fallback \cite{ACOTSP-MF}.
+
+For real-world evaluation, following \cite{sil} we extract all symmetric instances with Euclidean 2D coordinates (\texttt{EUC\_2D}) and more than 1K nodes from TSPLIB~\cite{tsplib} and CVRPlib~\cite{cvrplib}, yielding 33 TSP instances (1K--86K nodes) and 14 CVRP instances (1K--30K customers).
+These instances feature non-uniform, clustered, and geographically derived node distributions that differ substantially from the uniform training data, providing a rigorous test of cross-distribution generalization.
+
+
+\smallskip\noindent\textbf{Baselines.}
+For comparison, we include Classical Solvers LKH-3~\cite{lkhtsp, lkhcvrp}; Construction-based NCO Methods POMO~\cite{pomo}, BQ~\cite{bq}, LEHD~\cite{lehd}, INViT~\cite{invit}, SIGD~\cite{sigd}, L2C-Insert~\cite{l2c}, SIL~\cite{sil}; Decomposition based Methods GLOP~\cite{glop}, H-TSP~\cite{htsp}, L2C-Insert I$_{1000}$~\cite{l2c} and SIL PRC$_{1000}$~\cite{sil}; Neural-ACO Methods: DeepACO~\cite{deepaco}, GFACS \cite{gfacs}, GTG-ACO~\cite{gtgaco} and HeatACO~\cite{heataco}; Unguided Backend (ACO): the perturbation-based ACO environment without neural guidance, which serves as the direct ablation baseline for DyNACO. For TSP, we adapt~\cite{faco}; for CVRP, we design a novel capacity-aware variant with SRR (Appendix~\ref{app:cvrp}).
+All baselines are ran on the same datasets, results taken from \cite{l2c, sil}. For baselines reported on other datasets (e.g L2C-Insert~\cite{l2c}), we rerun them.
+
+\smallskip\noindent\textbf{Metrics \& Inference.}
+For comparison, we provide the average objective value (Obj.) and gap to reference (Gap) of each method. Obj.\ indicates the tour length, with shorter values indicating better performance. Gap measures the relative difference from reference solutions: for \TSP{}, these are LKH-3 outputs (provably optimal at 1K via Concorde verification; best-known at larger scales). For \CVRP{}, we use HGS~\cite{hgs} solutions as reference.
+For our method, we present the results of the greedy search and different numbers of outer iterations.
+
+\subsection{Comparative Results}
+\label{sec:main-results}
+
+Table~\ref{tab:main-results} presents results on synthetic \TSP{} and \CVRP{} instances.
+
+\smallskip\noindent\textbf{DyNACO surpasses all neural baselines on TSP across all scales.}
+\DyNACO{} achieves the lowest gap among all neural methods at every problem size, with the advantage widening at scale.
+At TSP-100K, DyNACO delivers a 23\% relative quality improvement over the strongest competitor SIL at $55{\times}$ less runtime.
+Most construction-based methods (POMO, LEHD, BQ, SIGD) run out of memory beyond 10K nodes; \DyNACO{} scales to 100K with sub-linear runtime growth.
+Performance also improves consistently with iteration budget, confirming that dynamic neural guidance compounds across outer steps rather than saturating early.
+
+\smallskip\noindent\textbf{Dynamic neural guidance transfers directly to CVRP without architectural changes.}
+\DyNACO{} consistently improves upon the unguided ACO baseline at every iteration budget and problem scale on CVRP (Appendix~\ref{app:cvrp}), using the same policy architecture and state-aware representation without modification.
+While SIL achieves strong synthetic-CVRP results at large scales, it requires substantially longer runtime.
+More importantly, on real-world CVRPlib instances (Table~\ref{tab:realworld}), \DyNACO{} achieves a $2{\times}$ relative improvement over SIL, demonstrating that dynamic neural guidance generalizes to non-uniform distributions where SIL's synthetic advantage does not transfer.
+
+\smallskip\noindent\textbf{Neural guidance improves quality while reducing runtime on TSP.}
+Remarkably, on TSP, \DyNACO{} runs 20--33\% \emph{faster} than the unguided solver at matched iteration budgets, while simultaneously producing better solutions (Table~\ref{tab:time-breakdown}).
+Better-targeted perturbations create less sub-optimality, so SRR's convergent repair terminates in fewer iterations; the neural policy amortizes its own inference cost by reducing downstream local-search work.
+On CVRP, neural guidance adds less than 1\% to total wall-clock time at large scales while yielding consistent quality improvements.
+
+\begin{table}[t]
+\centering
+\caption{Time breakdown (CPU vs.\ GPU) and quality for unguided ACO vs.\ DyNACO at $I_{10000}$.}
+\label{tab:time-breakdown}
+\small
+\renewcommand{\arraystretch}{0.80}
+\begin{tabularx}{\columnwidth}{llYYYY}
+\toprule
+Problem & Method & Gap & CPU (s) & GPU (s) & Total (s) \\
+\midrule
+\multirow{2}{*}{\TSP{}1K}
+  & ACO    & 0.48\% & 5.44  & --   & 5.44  \\
+  & DyNACO & \textbf{0.20\%} & 3.52  & 0.16  & 3.68  \\
+\midrule
+\multirow{2}{*}{\TSP{}10K}
+  & ACO    & 2.02\% & 26.81 & --   & 26.81 \\
+  & DyNACO & \textbf{0.82\%} & 16.79 & 1.10  & 17.89 \\
+\midrule
+\multirow{2}{*}{\TSP{}100K}
+  & ACO    & 3.12\% & 223.32 & --   & 223.32 \\
+  & DyNACO & \textbf{1.90\%} & 159.85 & 11.84 & 171.69 \\
+\midrule
+\midrule
+\multirow{2}{*}{\CVRP{}1K}
+  & ACO    & 1.85\% & 20.17 & --   & 20.17 \\
+  & DyNACO & \textbf{1.04\%} & 18.88 & 0.17  & 19.05 \\
+\midrule
+\multirow{2}{*}{\CVRP{}10K}
+  & ACO    & 6.76\% & 74.43 & --   & 74.43 \\
+  & DyNACO & \textbf{6.04\%} & 76.14 & 0.56  & 76.70 \\
+\midrule
+\multirow{2}{*}{\CVRP{}100K}
+  & ACO    & 7.26\% & 692.81 & --   & 692.81 \\
+  & DyNACO & \textbf{6.75\%} & 696.04 & 5.93  & 701.97 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[b]
+\centering
+\small
+\renewcommand{\arraystretch}{0.85}
+\caption{Comparison with neural-guided ACO methods at their maximum reported scale.}
+\label{tab:neural-aco}
+\begin{tabularx}{\columnwidth}{lYYYYYYYYYYYY}
+\toprule
+& \multicolumn{2}{c}{\TSP{}1K} & \multicolumn{2}{c}{\TSP{}10K} & \multicolumn{2}{c}{\CVRP{}1K} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7}
+Method & Gap & Time & Gap & Time & Gap & Time \\
+\midrule
+DeepACO~\cite{deepaco}       & 2.87\% & 66s & -- & -- & 2.40\% & 1.3m \\
+GFACS~\cite{gfacs}           & 2.63\% & 66s & -- & -- & 2.11\% & 1.3m \\
+GTG-ACO~\cite{gtgaco}        & 2.42\% & -- & -- & -- & -- & -- \\
+\midrule
+ACO+AttGCN~\cite{heataco}    & 0.44\% & 5s & 1.27\% & 1.47m & -- & -- \\
+ACO+DIMES~\cite{heataco}     & 0.39\% & 6s & 1.15\% & 1.4m & -- & -- \\
+ACO+UTSP~\cite{heataco}      & 0.42\% & 6s & -- & -- & -- & -- \\
+ACO+DIFUSCO~\cite{heataco}   & 0.23\% & 10s & 1.19\% & 2.89m & -- & -- \\
+\midrule
+\textbf{DyNACO (ours)}                & \textbf{0.20\%} & 4s & \textbf{0.82\%} & 18s & \textbf{1.04\%} & 19s \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Training Efficiency}
+\label{sec:runtime}
+
+\DyNACO{} converges in approximately 30 minutes for TSP-1K and roughly 4 hours for TSP-100K on a single RTX 5090 and Ryzen 9 7950X 16 Cores, using only 320 training instances, compared to hours or days for SIL and LEHD (full training times and hardware details in Appendix~\ref{app:hardware}; complexity analysis in Appendix~\ref{app:complexity}).
+The GNN encoder and MLP decoder together contain ${\sim}$50K parameters (${\sim}$1.1\,MB), a size that remains constant across all problem scales since the architecture operates on local $K$-NN neighborhoods.
+
+% ======================================================================
+% Ablations
+% ======================================================================
+\subsection{Ablation Studies}
+\label{sec:ablations}
+\smallskip\noindent\textbf{Both mechanisms are essential; trajectory-aware training contributes the larger effect.}
+Table~\ref{tab:ablation-decoupling} isolates the two mechanisms of dynamic neural guidance.
+Removing trajectory-aware training (reverting to static, single-step optimization) causes the largest degradation, while removing the state-aware representation also consistently hurts across all scales.
+This confirms that both mechanisms are indispensable, and that aligning training with the iterative search dynamics is the more critical factor.
+
+\begin{table}[t]
+\centering
+\caption{Ablation: decoupling the two mechanisms of dynamic neural guidance.}
+\label{tab:ablation-decoupling}
+\small
+\begin{tabularx}{\columnwidth}{lYYYY}
+\toprule
+
+Method & TSP1K & TSP5K & TSP10K & CVRP1K \\
+\midrule
+w/o both (static guidance)       & 3.65 & 4.87 & 3.56 & 3.00 \\
+w/o state-aware representation   & 0.75 & 2.11 & 2.28 & 2.79 \\
+Full dynamic neural guidance     & \textbf{0.37} & \textbf{1.24} & \textbf{1.62} & \textbf{2.58} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\smallskip\noindent\textbf{Inference-time strategies provide complementary gains on TSP.}
+All models are trained identically on the full trajectory with constant $\gamma{=}1$.
+At inference, guidance annealing and phased injection are applied as problem- and scale-specific hyperparameters (Appendix~\ref{app:inference}).
+On TSP, both strategies yield consistent improvements; on CVRP, only phased injection at long horizons is beneficial.
+
+% ======================================================================
+% Analysis of Learned Behavior
+% ======================================================================
+\subsection{Interpretation and Analysis}
+\label{sec:analysis}
+
+We now examine what dynamic neural guidance learns that static heatmaps fundamentally cannot capture.
+
+\smallskip\noindent\textbf{The policy adapts its guidance to the current search phase.}
+Standard neural-ACO methods produce a static heatmap that is identical whether the solver has run for 10 or 10,000 iterations.
+Because \DyNACO{} conditions on the evolving pheromone field and incumbent, improvements grow with longer search horizons: a model trained with $H{=}10$ guidance updates yields \emph{larger} gains when run for $H{=}100$ (Table~\ref{tab:main-results}).
+A static heatmap cannot exhibit this behavior, confirming that state-aware conditioning is what enables the policy to remain useful across all search phases.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{matrix_model_t5.pdf}
+    \caption{Pheromone concentration and neural guidance scores (first 100 rows of the edge matrix) at successive iterations~$T$.}
+    \label{fig:matrix_model}
+\end{figure}
+
+
+\smallskip\noindent\textbf{The policy learns to counteract ACO stagnation.}
+Figure~\ref{fig:matrix_model} displays the pheromone matrix and corresponding neural guidance scores (first 100 rows) at successive iterations.
+As search progresses, pheromone concentrations saturate: most edges converge to $\tau_{\max}$, leaving the pheromone signal nearly uninformative.
+Despite this uniformity, the model outputs a diverse range of guidance scores.
+Most notably, edges at maximum pheromone concentration almost always receive \emph{negative} guidance, actively suppressing over-reinforced edges and redirecting exploration.
+This selective counter-pressure is unavailable to static priors, which lack access to the pheromone landscape, confirming that dynamic neural guidance learns qualitatively different anti-stagnation strategies (see Appendix~\ref{app:guidance-evolution} for guidance evolution across training).
+
+% \smallskip\noindent\textbf{Why scope-restricted refinement?}
+% Scope-restricted refinement addresses a three-way trade-off between gradient fidelity, local optimality, and computational cost.
+% Standard LS erases the neural signal and costs $O(N^2)$ per tour; NLS preserves fidelity but requires $10{\times}$ neural forward passes per ant; truncated LS compromises quality while still scaling with $N$.
+% SRR confines refinement to the perturbation neighborhood, preserving the causal link between neural decisions and rewards at $O(M{\cdot}K)$ per ant, independent of $N$ (Appendix~\ref{app:credit}).
+% This makes per-ant local search feasible at 100K nodes, which is necessary for stable policy-gradient training since advantages must be computed for every ant at every iteration.
+
+\smallskip\noindent\textbf{The 1K-trained model transfers zero-shot to larger scales with minimal degradation.}
+Table~\ref{tab:cross-scale} evaluates the 1K model on 5K and 10K instances without retraining.
+Remarkably, on TSP-5K the 1K model \emph{outperforms} the in-scale model, while on TSP-10K and CVRP the degradation is negligible.
+This transferability stems from three scale-invariant design choices: the local $K$-NN architecture whose neighborhood statistics are size-independent, the state-aware representation that uses normalized features abstracting away absolute magnitudes, and the perturbation-based action space whose fixed horizon ($M{=}12$) does not grow with $N$ unlike constructive methods.
+
+\begin{table}[t]
+\centering
+\caption{Cross-scale zero-shot transfer: 1K model evaluated on larger instances.}
+\label{tab:cross-scale}
+\small
+\renewcommand{\arraystretch}{0.80}
+\begin{tabularx}{\columnwidth}{llYYYY}
+\toprule
+& & \multicolumn{2}{c}{$I_{1000}$} & \multicolumn{2}{c}{$I_{10000}$} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6}
+Problem & Model & Gap & $\Delta$ & Gap & $\Delta$ \\
+\midrule
+\multirow{2}{*}{\TSP{}5K}
+  & In-scale  & 1.30\% & --       & 0.75\% & --       \\
+  & 1K model  & \textbf{1.23\%} & $-$0.07  & \textbf{0.72\%} & $-$0.03  \\
+\midrule
+\multirow{2}{*}{\TSP{}10K}
+  & In-scale  & \textbf{1.59\%} & --       & \textbf{0.82\%} & --       \\
+  & 1K model  & 1.66\% & +0.07    & 0.90\% & +0.08    \\
+\midrule
+\multirow{2}{*}{\CVRP{}5K}
+  & In-scale  & \textbf{6.89\%} & --       & \textbf{3.36\%} & --       \\
+  & 1K model  & 7.10\% & +0.21    & 3.60\% & +0.24    \\
+\midrule
+\multirow{2}{*}{\CVRP{}10K}
+  & In-scale  & \textbf{11.04\%} & --      & \textbf{6.04\%} & --       \\
+  & 1K model  & 11.72\% & +0.68   & 6.07\% & +0.03    \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\smallskip\noindent\textbf{DyNACO generalizes zero-shot to real-world benchmarks across both problems.}
+We evaluate the 1K-trained model on 33 TSPLIB instances (1K--86K nodes) and 14 CVRPlib instances (1K--30K customers) without any fine-tuning (Table~\ref{tab:realworld}).
+While many neural baselines OOM beyond $\sim$10K nodes, DyNACO solves \emph{all} instances.
+On TSPLIB, DyNACO$^{\dagger}$ achieves a 31\% relative improvement over unguided ACO, winning on 29/33 instances; on CVRPlib, it improves every instance with a 14\% relative reduction in gap.
+These results confirm that dynamic neural guidance trained only on uniform synthetic 1K instances can transfers robustly to non-uniform distributions, real-world topologies, and scales up to $86{\times}$ larger than training (per-instance results in Appendix~\ref{app:tsplib} and \ref{app:cvrplib}).
+
+\label{sec:agent}
+
+\begin{table}[t]
+\centering
+\caption{Real-world benchmark results (zero-shot from 1K model, $I_{10000}$).}
+\label{tab:realworld}
+\small
+\renewcommand{\arraystretch}{0.80}
+\begin{tabularx}{\columnwidth}{lYYYY}
+\toprule
+& \multicolumn{2}{c}{TSPLIB (33)} & \multicolumn{2}{c}{CVRPlib (14)} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+Method & Gap (\%) & Time & Gap (\%) & Time \\
+\midrule
+LKH3 & 0.07 & 35m & 13.6 & 2.1h \\
+HGS & -- & -- & 5.15 & 5h \\
+\midrule
+LEHD~\cite{lehd}  & 13.2 & 38m & 16.9 & 40m \\
+GLOP~\cite{glop} & 6.99 & 34s & 20.6 & 39s \\
+SIL~\cite{sil} & 3.03 & 45m & 7.69 & 54m \\
+\midrule
+% ACO                   & 1.29 & 13s & 4.26 & 50.85s \\
+\textbf{DyNACO (ours)}       & \textbf{0.89} & 11.57s & \textbf{3.66} & 51.07s \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ======================================================================
+% Conclusion
+% ======================================================================
+\section{CONCLUSION}
+
+This work introduces DyNACO, a framework that formalizes the neural-ACO interaction as a semi-MDP and employs a lightweight meta-policy (${\sim}$50K parameters, 30\,min training) to inject dynamic guidance throughout the search trajectory. DyNACO combines two mechanisms, state-aware representation and trajectory-aware training, with scope-restricted refinement to preserve gradient fidelity while scaling to 100K-node instances. Extensive results demonstrate state-of-the-art performance among neural methods on TSP and CVRP across all evaluated scales, with up to 59\% relative gap reduction over the unguided ACO baseline at matched iteration budgets, and a 20--33\% runtime reduction on TSP. Trained only on uniform synthetic 1K instances, DyNACO generalizes zero-shot to real-world benchmarks, surpassing all neural baselines on both TSPLIB and CVRPlib and outperforming the classical solver HGS on CVRPlib.
+
+One limitation is that the temporal abstraction granularity $S$ and the $K$-NN candidate graph require problem-specific configuration, and models are currently trained at a fixed scale.
+Future work includes: (1)~adaptive candidate selection to address the fixed-$K$ reachability constraint; (2)~curriculum or multi-scale training for improved cross-scale generalization; and (3)~extending dynamic neural guidance to other combinatorial domains and meta-heuristic families.
+
+% ======================================================================
+% Acknowledgments
+% ======================================================================
+% \section*{Acknowledgments}
+% (Omitted for review)
+
+% ======================================================================
+% References
+% ======================================================================
+\newpage
+\bibliographystyle{plain}
+\bibliography{references}
+
+\newpage
+% ======================================================================
+% Appendix
+% ======================================================================
+\appendix
+
+% Reset counters for Appendix
+\setcounter{table}{0}
+\renewcommand{\thetable}{A\arabic{table}}
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{A\arabic{figure}}
+\setcounter{algorithm}{0}
+\renewcommand{\thealgorithm}{A\arabic{algorithm}}
+
+% ======================================================================
+% Appendix A: Methodological Details
+% ======================================================================
+\section{Methodological Details}
+\label{app:method}
+
+% ----------------------------------------------------------------------
+\subsection{State-Aware Representation: Feature Definitions}
+\label{app:state-features}
+
+The state-aware representation (the first mechanism of dynamic neural guidance) attaches six features to each candidate edge $(i,j)$ in the $K$-NN graph, evolving at every outer step $h$.
+Features~1--3 capture search dynamics (pheromone field); Features~4--6 encode the incumbent topology.
+
+\textbf{Feature 1: Normalized Distance.}
+\begin{equation}
+f_1(i,j) = \frac{d_{ij}}{\bar{d}_i}, \quad \bar{d}_i = \frac{1}{K} \sum_{j' \in \mathcal{N}_K(i)} d_{ij'}.
+\end{equation}
+Scale-invariant by construction; ensures robustness to instance scaling.
+
+\textbf{Feature 2: Pheromone Dispersion (Coefficient of Variation).}
+\begin{equation}
+f_2(i,j) = \frac{\sigma_{\tau_i}}{\bar{\tau}_i} = \frac{\sqrt{\frac{1}{K}\sum_{j'} (\tau_{ij'} - \bar{\tau}_i)^2}}{\bar{\tau}_i}, \quad \bar{\tau}_i = \frac{1}{K}\sum_{j'} \tau_{ij'}.
+\end{equation}
+This \emph{node-level} feature (identical for all edges from $i$) measures local pheromone convergence: high CV indicates concentrated pheromone on few edges; low CV indicates near-uniform distribution.
+Clamped to $[0, 10]$ for numerical stability.
+
+\textbf{Feature 3: Relative Log-Pheromone.}
+\begin{equation}
+f_3(i,j) = \log\!\left(\frac{\tau_{ij}}{\bar{\tau}_i}\right), \quad \text{clamped to } [-5, 5].
+\end{equation}
+This \emph{edge-level} feature captures whether $(i,j)$ has above- or below-average pheromone relative to node $i$'s other candidates.
+The log transform provides sensitivity across the full dynamic range.
+
+\textbf{Features 4--5: Incumbent Adjacency Indicators.}
+Let $b = (v_0, v_1, \ldots, v_{n-1})$ denote the current incumbent tour, with $\mathrm{succ}_b(i)$ and $\mathrm{pred}_b(i)$ denoting successor and predecessor:
+\begin{align}
+f_4(i,j) &= \mathbf{1}[j = \mathrm{succ}_b(i)], \\
+f_5(i,j) &= \mathbf{1}[j = \mathrm{pred}_b(i)].
+\end{align}
+These binary features encode which edges are in the current best solution, enabling the policy to distinguish between reinforcing and perturbing the incumbent.
+
+\textbf{Feature 6: New-Edge Indicator.}
+Let $\mathrm{pos}_b(v)$ denote the position of node $v$ in the incumbent.
+\begin{equation}
+f_6(i,j) = \mathbf{1}\!\left[|\mathrm{pos}_b(i) - \mathrm{pos}_b(j)| \notin \{1, n{-}1\}\right].
+\end{equation}
+Flags edges that would introduce new structure if selected, complementing Features 4--5.
+
+\textbf{Implementation.}
+All features are computed on GPU via PyTorch tensor operations.
+Pheromone features (2--3) use stabilized bounds ($\tau_{\min}=1/K$, $\tau_{\max}=1$), ensuring $\bar{\tau}_i > 0$.
+Incumbent features (4--6) are recomputed at each outer step as $b^{(h)}$ evolves.
+Total dimensionality: 6 per edge, $O(n \cdot K)$ values, linear in $n$ for fixed $K$.
+
+
+
+% ----------------------------------------------------------------------
+\subsection{PPO Replay and Memory Efficiency}
+\label{app:ppo-replay}
+
+PPO replay in \DyNACO{} requires storing only lightweight summaries, not the full GNN computation graph, making importance-ratio computation tractable at 100K+ nodes.
+
+\textbf{Stored Quantities per Outer Step.}
+The incumbent successor array $\mathrm{succ}_{b^{(h)}}$ (an $n$-element integer vector) suffices to reconstruct incumbent-derived edge features (Features~4--6 in \Cref{app:state-features}) during replay, since the policy logits $z_\theta(\mathcal{S}_h)$ depend on these features.
+
+\textbf{Stored Quantities per Inner Iteration.}
+For each inner iteration $s$ within outer step $h$:
+\begin{enumerate}
+\item \emph{Pheromone snapshot} $\tau^{(h,s)} \in \mathbb{R}^{n \times K}$: the pheromone field at the start of iteration $s$.
+\item \emph{Action trace per ant}: for each stochastic decision step $t$ of ant $a$:
+  $u_t$ (current node), $j_t$ (chosen neighbor index), $\mathcal{M}_t$ (64-bit bitmask encoding feasible candidates), and a stochastic flag.
+  Deterministic steps (single feasible candidate) contribute $\log p = 0$ and need not be replayed.
+\item \emph{Post-refinement costs} $C(\hat{\pi}_{a,s})$ for advantage computation.
+\end{enumerate}
+
+\textbf{Sufficiency.}
+The log-probability of an ant's trajectory depends only on the transition kernel and the feasible set at each step, not on the incumbent directly.
+The feasible-set bitmask $\mathcal{M}_t$ is stored directly, so the incumbent is needed only for recomputing the policy's \emph{input features}, not for masking.
+This allows re-computing log-probabilities $\pi_\theta(a \mid s)$ for importance sampling without storing the full GNN computation graph, keeping memory footprint low.
+
+\textbf{Replay Procedure.}
+During PPO updates, we recompute log-probabilities under the current policy $\pi_\theta$:
+\begin{equation}
+\bar{\ell}_a = \frac{1}{T_a}\sum_{t:\, \text{stochastic}} \!\left[ \log w_{u_t, j_t} - \log \!\sum_{j':\, \mathcal{M}_t[j']=1} w_{u_t, j'} \right],
+\end{equation}
+where $T_a$ is the number of stochastic steps, $w_{u,j} = \tau_{u,j}^\alpha \cdot \eta_{u,j}^\beta \cdot \exp(z_\theta(u,j))$, and the denominator is restricted to feasible candidates via the stored bitmask.
+Per-decision normalization by $T_a$ ensures importance ratios $r_{a,s} = \exp(\bar{\ell}_a^{\text{new}} - \bar{\ell}_a^{\text{old}})$ are comparable across ants with varying numbers of stochastic decisions.
+
+\textbf{Memory Footprint.}
+At $n=10$K with $K=32$ and $S=100$ inner iterations, pheromone snapshots occupy $100 \times 10\text{K} \times 32 \times 4\text{B} \approx 128$\,MB in fp32.
+Action traces are compact: each ant makes at most $M{=}12$ stochastic decisions, stored as $(u_t, j_t, \mathcal{M}_t)$ tuples totaling ${\approx}20$\,bytes per decision.
+With $m{=}100$ ants, this adds ${\approx}24$\,KB per inner iteration, negligible versus pheromone storage.
+At $n{=}100$K the pheromone budget scales to ${\approx}1.3$\,GB, still within single-GPU memory.
+
+
+% ======================================================================
+% Appendix B: Environment and Backend
+% ======================================================================
+\section{Environment and Backend}
+\label{app:backend}
+
+This section provides a detailed description of the perturbation-based ACO environment (\Cref{sec:backend}), covering the ant construction procedure, scope-restricted refinement, and CVRP-specific capacity handling.
+
+% ----------------------------------------------------------------------
+\subsection{Perturbation Algorithm}
+\label{app:perturbation}
+
+Following~\cite{faco}, ants perform $M$ relocation steps starting from the incumbent $b$, where node selection follows the neurally-shaped kernel $p^\theta$.
+Algorithm~\ref{alg:perturbation-app} provides the full procedure.
+Each ant touches at most $O(M \cdot K)$ edges, where $M \ll N$ and $K{=}32$, independent of problem size.
+
+\begin{algorithm}[h]
+\caption{Perturbation-Based Ant Construction}
+\label{alg:perturbation-app}
+\begin{algorithmic}[1]
+\STATE \emph{Input:} Incumbent tour $b$, starting node $u_0$, max new-edge steps $M$, shaped kernel $p^\theta$
+\STATE $\text{tour} \leftarrow \text{copy}(b)$; $\text{visited}[u_0] \leftarrow \text{true}$; $\text{new\_edges} \leftarrow 0$
+\STATE $\text{checklist} \leftarrow \{u_0\}$; $u \leftarrow u_0$; $\log p \leftarrow 0$
+\WHILE{$\text{new\_edges} < M$ \AND not all nodes visited}
+    \STATE $\mathcal{C} \leftarrow \{v \in \mathcal{N}_K(u) : \neg\text{visited}[v]\}$ \COMMENT{feasible candidates}
+    \IF{$|\mathcal{C}| = 0$}
+        \STATE $v \leftarrow$ fallback to backup list or greedy
+    \ELSIF{$|\mathcal{C}| = 1$}
+        \STATE $v \leftarrow$ the single candidate \COMMENT{deterministic, $\log p$ unchanged}
+    \ELSE
+        \STATE Sample $v \sim p^\theta(\cdot \mid u)$ restricted to $\mathcal{C}$
+        \STATE $\log p \leftarrow \log p + \log p^\theta(v \mid u)$
+    \ENDIF
+    \IF{$(u, v) \notin \text{edges}(b)$} \COMMENT{not adjacent in \emph{incumbent}}
+        \STATE $\text{new\_edges} \leftarrow \text{new\_edges} + 1$
+        \STATE $\text{checklist} \leftarrow \text{checklist} \cup \{u, v, \text{pred}(v)\}$
+    \ENDIF
+    \STATE \textsc{Relocate}(tour, $u$, $v$) \COMMENT{move $v$ to successor of $u$; $\le 3$ edge changes}
+    \STATE $\text{visited}[v] \leftarrow \text{true}$; $u \leftarrow v$
+\ENDWHILE
+\STATE \emph{Return:} tour, checklist, $\log p$
+\end{algorithmic}
+\end{algorithm}
+
+% ----------------------------------------------------------------------
+\subsection{Scope-Restricted Refinement (SRR)}
+\label{app:credit}
+
+\subsubsection{The Flaw of Truncated Refinement}
+Standard neural-guided approaches face a fundamental trade-off: unrestricted local search (LS) erases the gradient signal (gradient washout), whereas restricted LS yields suboptimal solutions.
+DeepACO~\cite{deepaco} employs truncated refinement, limiting 2-opt to a fixed budget (e.g., $N/4$ swaps).
+While this preserves partial dependence on the neural construction, it leaves tours in a semi-converged state.
+To compensate, DeepACO applies Neural Local Search (NLS), injecting neural priors into the swap operator, which requires repeated neural inference ($10{\times}$) per solution and becomes intractable for $N > 10{,}000$.
+
+\subsubsection{The ``BFS Repair'' Mechanism}
+\DyNACO{} exploits the structure of perturbation-based search.
+Let $\mathcal{B}^*$ be an incumbent that is 2-opt optimal.
+The policy generates a perturbation, replacing edges $E_{\text{rem}} \subset \mathcal{B}^*$ with $E_{\text{add}}$, yielding $\mathcal{B}'$.
+Since $\mathcal{B}'$ is suboptimal only in the topological vicinity of $E_{\text{add}}$, SRR initializes a checklist with the endpoints of $E_{\text{add}}$ and propagates improvements outward in a breadth-first manner, bounded by the extent of the perturbation-induced displacement.
+
+\textbf{Optimality.}
+If SRR terminates with an empty checklist, the resulting tour $\mathcal{B}''$ is 2-opt optimal under the candidate-graph move set.
+
+\begin{proof}
+Let $\mathcal{C} \subseteq E(\mathcal{B}'')$ denote the set of edges created or modified during the perturbation and subsequent repair, and let $\bar{\mathcal{C}} = E(\mathcal{B}'') \setminus \mathcal{C}$ denote the remaining edges.
+By construction, every edge in $\bar{\mathcal{C}}$ is identical to its counterpart in $\mathcal{B}^*$.
+Consider an arbitrary 2-opt move involving edge pair $(e_1, e_2)$ in $\mathcal{B}''$.
+There are three cases:
+\begin{enumerate}
+    \item \emph{Both $e_1, e_2 \in \bar{\mathcal{C}}$}: These edges and their neighborhoods are unchanged from $\mathcal{B}^*$. Since $\mathcal{B}^*$ is 2-opt optimal, no improving swap exists.
+    \item \emph{At least one of $e_1, e_2 \in \mathcal{C}$}: SRR initializes its checklist with the endpoints of all edges in $E_{\text{add}}$ and propagates to any node whose incident edges are modified during repair. An empty checklist at termination certifies that no candidate-graph 2-opt move involving any edge in $\mathcal{C}$ is improving.
+    \item \emph{Cross-boundary}: If $e_1 \in \mathcal{C}$ and $e_2 \in \bar{\mathcal{C}}$, case~2 already covers $e_1$'s endpoint, and the BFS propagation would have reached $e_2$ if an improving swap existed.
+\end{enumerate}
+Since all cases are exhausted, $\mathcal{B}''$ admits no improving 2-opt move under the candidate-graph move set.
+\end{proof}
+
+\textbf{Comparison with DeepACO.}
+DeepACO truncates search and compensates with NLS.
+SRR runs to convergence within its scope, achieving 2-opt optimality under the candidate-graph move set and preserving gradient fidelity without neural overhead during LS.
+
+% ----------------------------------------------------------------------
+\subsection{CVRP Backend Details}
+\label{app:cvrp}
+
+The neural policy does not receive capacity information; all CVRP-specific logic is encapsulated within the backend.
+
+\subsubsection{Capacity-Aware Relocation}
+We maintain an explicit multi-route structure using linked lists, where each route $r$ tracks its current load $L_r$.
+Transitions to node $j$ are masked if $\text{Load} + d_j > Q$ (capacity exceeded).
+Specifically:
+\begin{enumerate}
+    \item \textbf{Same-route} ($r_u = r_v$): Always feasible; reordering within a route preserves load.
+    \item \textbf{Cross-route} ($r_u \neq r_v$): Feasible only if $L_{r_u} + d_v \leq Q$.
+    \item \textbf{Depot target} ($v = 0$): Triggers a route split; always feasible.
+\end{enumerate}
+The new-edge counter tracks cross-route edges specifically, ensuring sufficient inter-route perturbation for effective local search.
+
+\subsubsection{Scope-Restricted CVRP Local Search}
+The LS phase applies four operators restricted to the checklist of perturbed nodes:
+
+\textbf{Intra-Route 2-opt.}
+For each checklist node $u$, we examine 2-opt moves within $u$'s route, scanning $K$-nearest same-route neighbors.
+
+\textbf{Inter-Route Relocate.}
+For cross-route pairs $(u, v)$ with $u$ in the checklist, we evaluate relocating $u$ adjacent to $v$, subject to $L_{r_v} + d_u \leq Q$.
+
+\textbf{Inter-Route Swap.}
+We evaluate swapping positions of $u$ and $v$ between routes, requiring $L_{r_u} - d_u + d_v \leq Q$ and $L_{r_v} - d_v + d_u \leq Q$.
+
+\textbf{2-opt* (Cross-Route Segment Exchange).}
+We evaluate exchanging route tails, checking cumulative demands of resulting segments.
+
+All operators use \emph{don't-look bit} (DLB) optimization: nodes are deactivated when no improving move is found and reactivated only when a neighbor participates in an accepted move.
+
+% ======================================================================
+% Appendix C: Experimental Setup
+% ======================================================================
+\section{Experimental Setup}
+\label{app:setup}
+
+% ----------------------------------------------------------------------
+\subsection{Hyperparameters}
+\label{app:repro}
+
+\begin{table}[h]
+\centering
+\caption{Default hyperparameters for \DyNACO{}.}
+\label{tab:hyperparams}
+\small
+\begin{tabular}{llc}
+\toprule
+Category & Parameter & Value \\
+\midrule
+\multirow{4}{*}{ACO Backend}
+    & Ants $m$ & 100 \\
+    & Outer steps $H$ & 10 \\
+    & Inner steps $S$ & 100 \\
+    & New-edge steps $M$ & 12 \\
+\midrule
+\multirow{3}{*}{Pheromone}
+    & Evaporation $\rho$ (TSP / CVRP) & 0.1 / 0.5 \\
+    & $\tau_{\max}$ & 1.0 \\
+    & $\tau_{\min}$ & $1/K$ \\
+\midrule
+\multirow{2}{*}{Graph}
+    & $K$-NN candidates & 32 \\
+    & Backup neighbors & 32 \\
+\midrule
+\multirow{5}{*}{PPO Training}
+    & Learning rate & $5 \times 10^{-6}$ \\
+    & PPO clip $\epsilon$ & 0.1 \\
+    & PPO epochs $K_{\text{PPO}}$ & 4 \\
+    & Optimizer & AdamW + cosine \\
+    & Guidance weight $\gamma$ (train) & 1.0 \\
+\midrule
+\multirow{3}{*}{Architecture}
+    & GNN layers $L$ & 12 \\
+    & Hidden dimension $d$ & 32 \\
+    & MLP decoder layers & 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The model totals ${\sim}$50K parameters (${\sim}$1.1\,MB), constant across problem scales since the architecture operates on local $K$-NN neighborhoods.
+We use a standard 12-layer GNN encoder~\cite{deepaco} with residual connections and batch normalization; the decoder is a 3-layer MLP projecting edge embeddings to scalar log-priors.
+
+% ----------------------------------------------------------------------
+\subsection{Hardware and Runtime}
+\label{app:hardware}
+
+All experiments are conducted on a single NVIDIA RTX 5090 and Ryzen 9 7950X 16 Cores.
+Training wall-clock time scales moderately with problem size:
+
+\begin{table}[h]
+\centering
+\caption{Training wall-clock times on a single RTX 5090 and Ryzen 9 7950X 16 Cores (10 epochs).}
+\label{tab:training-times}
+\small
+\begin{tabularx}{\columnwidth}{lY}
+\toprule
+Scale & Training Time \\
+\midrule
+TSP-1K   & $\sim$30 min \\
+TSP-10K  & $\sim$2 hours \\
+TSP-100K & $\sim$4 hours \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+PPO replay stores pheromone snapshots for $S$ inner steps per outer step, which are discarded after each update; at $n{=}10$K with $K{=}32$ and $S{=}100$, this amounts to ${\sim}128$\,MB, scaling to ${\sim}1.3$\,GB at $n{=}100$K.
+
+% ----------------------------------------------------------------------
+\subsection{Complexity Analysis}
+\label{app:complexity}
+
+The computational cost separates into neural inference and per-iteration ACO operations.
+
+\textbf{Neural inference.}
+The GNN encoder runs once per outer step: $O(L \cdot n \cdot K \cdot d)$ for $L{=}12$ layers, $n$ nodes, $K{=}32$ candidates, $d{=}32$ hidden dim.
+The edge MLP adds $O(n \cdot K \cdot d)$.
+Total neural cost across $H$ outer steps: $O(H \cdot L \cdot n \cdot K \cdot d)$.
+
+\textbf{ACO sampling.}
+Each of $m$ ants takes at most $M$ relocation steps costing $O(K)$ each, giving $O(m \cdot M \cdot K)$ per inner iteration.
+Scope-restricted LS scans $O(M)$ checklist nodes with $O(K)$ neighbors: $O(m \cdot M \cdot K)$ per iteration.
+Pheromone updates touch only edges in the best route: $O(n)$.
+Total over $T{=}H \cdot S$ iterations: $O(T \cdot m \cdot M \cdot K)$.
+
+\textbf{Concrete numbers} ($H{=}10$, $S{=}100$, $n{=}10$K):
+neural $\approx 1.2 \times 10^9$ ops (GPU); sampling $\approx 3.8 \times 10^7$ ops/iteration (CPU, OpenMP-parallelized).
+
+% ----------------------------------------------------------------------
+\subsection{Guidance Evolution During Training}
+\label{app:guidance-evolution}
+
+Figures~\ref{fig:guidance_eta_corr} and~\ref{fig:guidance_mean} track two aggregate statistics of the learned guidance signal (its Pearson correlation with the pheromone field and its mean value) across training steps for different scane $N$ on TSP.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{prior_eta_corr.pdf}
+    \caption{Pearson correlation between neural guidance scores and pheromone concentration over training steps, for $N{=}1$K--$100$K.}
+    \label{fig:guidance_eta_corr}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{prior_mean.pdf}
+    \caption{Mean neural guidance score over training steps, for $N{=}1$K--$100$K.}
+    \label{fig:guidance_mean}
+\end{figure}
+
+\textbf{Cross-scale universality of the correlation trajectory.}
+Despite an order-of-magnitude difference in problem size, the guidance--pheromone correlation follows a strikingly consistent trajectory across all scales (Figure~\ref{fig:guidance_eta_corr}): an initial sharp decrease in the early training phase, followed by a gradual recovery.
+This pattern suggests a universal two-phase learning dynamic: the policy first learns to \emph{diverge} from the pheromone signal, establishing an independent, complementary guidance role, and subsequently learns to \emph{selectively re-align} with pheromone on edges where the two signals agree.
+The near-identical evolution across scales provides further evidence that the state-aware representation generalizes across problem sizes, consistent with the cross-scale transfer results in Table~\ref{tab:cross-scale}.
+
+\textbf{Scale-dependent variation in guidance magnitude.}
+In contrast to the correlation trajectory, the mean guidance value (Figure~\ref{fig:guidance_mean}) exhibits modest scale-dependent differences.
+Most notably, the $N{=}100$K and $N{=}5$K curves both start at lower mean values, but diverge during training: the $N{=}100$K mean rises back toward zero while the $N{=}5$K mean remains lower.
+Nevertheless, a consistent finding across \emph{all} scales is that the mean guidance remains negative throughout training.
+This indicates that, for TSP, the learned policy predominantly assumes a \emph{suppressive} role with respect to the pheromone field: down-weighting over-reinforced edges rather than amplifying under-explored ones.
+This observation is consistent with the anti-stagnation behavior discussed in~\S\ref{sec:analysis}: since ACO's positive-feedback loop systematically over-concentrates pheromone, a complementary policy that applies net-negative corrections provides the most effective guidance strategy.
+
+\textbf{CVRP: capacity constraints induce chaotic correlation dynamics.}
+Figures~\ref{fig:guidance_eta_corr_cvrp} and~\ref{fig:guidance_mean_cvrp} replicate the above analysis for CVRP.
+The guidance--pheromone correlation (Figure~\ref{fig:guidance_eta_corr_cvrp}) is markedly more volatile than the smooth, scale-invariant trajectory observed for TSP.
+We attribute this to the heterogeneous capacity constraints that define CVRP: as problem size increases, the number of routes, their load distributions, and the feasibility landscape all change qualitatively, preventing the policy from settling into a single, universal correlation regime.
+Unlike TSP, where the combinatorial structure is homogeneous across scales, CVRP's capacity dimension introduces a confounding factor that makes the guidance--pheromone relationship inherently scale-dependent.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{corr_cvrp.pdf}
+    \caption{Pearson correlation between neural guidance scores and pheromone concentration over training steps for CVRP, $N{=}1$K--$50$K.}
+    \label{fig:guidance_eta_corr_cvrp}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{mean_cvrp.pdf}
+    \caption{Mean neural guidance score over training steps for CVRP, $N{=}1$K--$50$K.}
+    \label{fig:guidance_mean_cvrp}
+\end{figure}
+
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{interaction.pdf}
+    \caption{Guidance--pheromone interaction rates (enhancement vs.\ suppression) across outer steps $H{=}1$--$10$.}
+    \label{fig:interaction}
+\end{figure}
+
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{prior_changes.pdf}
+    \caption{Guidance volatility metrics ($\ell_2$ drift, top-set turnover, argmax flip rate) across outer steps $H{=}1$--$10$.}
+    \label{fig:prior_changes}
+\end{figure}
+
+\textbf{Guidance undergoes a rapid initial adaptation followed by steady-state refinement.}
+Figure~\ref{fig:prior_changes} tracks three complementary measures of guidance change between consecutive outer steps: the relative $\ell_2$ drift, the top-set turnover (Jaccard distance among the top-5\% edges), and the argmax flip rate (fraction of nodes whose highest-guidance neighbor changes).
+All three metrics spike to ${\sim}1.0$ at the first outer step ($H{=}1$), indicating that the policy substantially revises its guidance upon first observing pheromone feedback.
+After this initial adjustment, all metrics stabilize at ${\sim}0.2$--$0.3$ and remain there for the subsequent nine outer steps, indicating that the policy settles into a regime of incremental, fine-grained updates conditioned on the gradually evolving pheromone landscape.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{cost.pdf}
+    \caption{Costs of DyNACO and ACO.}
+    \label{fig:cost}
+\end{figure}
+
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{cost_mix.pdf}
+    \caption{Costs of DyNACO and ACO (Phased Guidance).}
+    \label{fig:cost}
+\end{figure}
+
+\textbf{The policy transitions from enhancement to suppression over the search trajectory.}
+Figure~\ref{fig:interaction} decomposes the guidance--pheromone interaction into two modes: \emph{enhancement} (edges ranked in the top-$k$ by both pheromone and guidance, indicating agreement) and \emph{suppression} (edges ranked in the top-$k$ by pheromone but bottom-$k$ by guidance, indicating active opposition).
+At $H{=}1$, enhancement spikes to ${\sim}0.24$ while suppression drops to ${\sim}0.15$, reflecting a cooperative phase in which the policy reinforces early pheromone signals.
+By $H{=}3$, the two curves cross: suppression overtakes enhancement and remains dominant through $H{=}10$, with suppression trending gradually upward and enhancement trending downward.
+This crossover reveals a principled phase transition in the learned strategy.
+In early search, pheromone fields are near-uniform and carry limited information; the policy cooperates by amplifying the few edges that show early promise.
+As pheromone concentrates and ACO's positive-feedback loop risks premature convergence, the policy shifts to a predominantly suppressive role, counteracting over-reinforced edges to maintain solution diversity.
+This adaptive transition from cooperative to adversarial guidance is precisely the behavior that trajectory-aware training incentivizes and that static priors, which lack access to the evolving pheromone state, fundamentally cannot exhibit.
+
+\textbf{CVRP: scale-dependent guidance polarity.}
+The mean guidance trajectory (Figure~\ref{fig:guidance_mean_cvrp}) reveals a further contrast with TSP.
+Whereas TSP scales share a common starting point before diverging modestly, CVRP scales separate early and evolve in opposing directions: the $N{=}1$K mean steadily increases toward $+1.0$, while the $N{=}50$K mean decreases toward $-1.0$.
+This polarity reversal indicates that the optimal guidance strategy is qualitatively different across CVRP scales.
+At small scales, capacity constraints are relatively loose and pheromone fields converge quickly; the policy learns to \emph{amplify} the existing pheromone signal, reinforcing promising routes.
+At large scales, the combinatorial explosion of feasible route partitions makes pheromone concentration premature; the policy instead adopts the same suppressive, anti-stagnation role observed in TSP, counteracting over-reinforcement to maintain diversity.
+Despite this divergence, each scale's trajectory is individually stable, suggesting that the policy consistently converges to a well-defined strategy conditioned on the problem characteristics encoded in the state representation.
+
+% ======================================================================
+% Appendix D: Additional Results
+% ======================================================================
+\section{Additional Results}
+\label{app:results}
+
+% ----------------------------------------------------------------------
+\subsection{Inference Strategy Ablation}
+\label{app:inference}
+
+The model is always trained with constant guidance ($\gamma{=}1$) over the full trajectory, without annealing or phased scheduling.
+At inference, two temporal strategies serve as problem- and scale-specific hyperparameters.
+Table~\ref{tab:inference-config} summarizes the configuration used for each reported result.
+
+\begin{table}[h]
+\centering
+\caption{Inference strategy configuration per problem and scale.}
+\label{tab:inference-config}
+\small
+\begin{tabular}{lcc}
+\toprule
+Setting & Annealing & Phased Injection \\
+\midrule
+TSP-1K (all budgets)          & \checkmark & \checkmark \\
+TSP-5K, 10K, 50K, 100K       & \checkmark &            \\
+CVRP (all scales, $I{<}5000$) &            &            \\
+CVRP (all scales, $I{\geq}5000$) &         & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Guidance Annealing (TSP only).}
+Annealing $\gamma \to 0$ linearly across inner iterations transitions from neural steering to pheromone exploitation:
+\begin{equation}
+\lim_{t \to T} P_t(j \mid i) \propto (\tau_{ij})^\alpha (\eta_{ij})^\beta.
+\end{equation}
+This strategy is effective for TSP, where pheromone dynamics on unconstrained tours converge reliably; once the colony has concentrated pheromone on promising edges, neural bias becomes redundant and may impede fine-grained pheromone exploitation.
+For CVRP, however, capacity constraints fragment routes into many short vehicle tours whose structure depends on demand distributions.
+Pheromone convergence is less uniform across these segments, and premature removal of neural guidance risks exploiting suboptimal route decompositions.
+Accordingly, $\gamma{=}1$ is maintained throughout CVRP inference.
+
+\textbf{Phased Injection.}
+An injection threshold $\phi \in [0,1]$ controls when neural guidance activates.
+For the first $\phi \cdot H$ outer steps, the solver operates with vanilla ACO only; at step $\lceil\phi \cdot H\rceil$, neural shaping logits are injected.
+For TSP-1K, phased injection is applied at all iteration budgets because the small scale allows sufficient pheromone diversity to develop quickly.
+For larger TSP scales, phased injection is not used: every outer step is valuable and delaying activation forfeits a significant fraction of the budget.
+For CVRP, phased injection is applied only at longer iteration budgets ($I{\geq}5000$), where early pheromone fields are too uniform for the policy to provide meaningful direction; at shorter horizons, constant guidance is preferred.
+Training on the full trajectory ($0 \to T$) with randomized warmup ensures the policy handles both high-entropy (exploratory) and low-entropy (converged) pheromone states at deployment.
+
+\textbf{Training vs.\ inference asymmetry.}
+While annealing $\gamma \to 0$ improves inference performance, it is counterproductive during training: the gradient scales as $\nabla_\theta \log P_t(j \mid i) \propto \gamma_t \cdot \nabla_\theta z_\theta(i,j)$, so as $\gamma_t \to 0$ the gradient signal vanishes.
+Training therefore always maintains constant $\gamma{=}1$, preserving gradient magnitude across the full trajectory and ensuring the policy learns from all search phases.
+The inference strategies above are strictly post-hoc enhancements applied to this single trained model.
+
+\begin{table}[h]
+\centering
+\caption{Inference strategy ablation. Gap (\%) to LKH-3. All models trained with constant $\gamma{=}1$; strategies applied post-hoc.}
+\label{tab:ablation-inference}
+\small
+\begin{tabularx}{\columnwidth}{lYYYY}
+\toprule
+Inference Strategy & TSP5K & TSP10K & CVRP5K & CVRP10K \\
+\midrule
+Constant ($\gamma{=}1$)            & 1.38 & 1.73 & \textbf{6.58} & 11.16 \\
+Phased injection           & \textbf{1.20} & 1.68 & 7.07 & \textbf{10.86} \\
+Guidance annealing         & 1.23 & \textbf{1.59} & 6.84 & 11.17 \\
+Phased + Annealing         & 1.23 & 1.60 & 7.35 & 11.02 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Table~\ref{tab:ablation-inference} ablates all four strategy combinations on TSP and CVRP.
+For TSP, annealing and phased injection is consistently beneficial.
+For CVRP, phased injection at long horizons provides modest gains, while annealing degrades performance.
+
+\textbf{Training with inference strategies degrades performance.}
+A natural question is whether incorporating these strategies \emph{during training} would produce a better-matched policy.
+Table~\ref{tab:train-strategy} evaluates this on TSP-5K ($I_{1000}$) by training separate models under each of the four strategy combinations and evaluating every model with all four inference strategies.
+In every case, the model trained with constant $\gamma{=}1$ over the full trajectory yields the best result, regardless of which inference strategy is applied.
+Training with annealing causes the policy gradient to vanish in later iterations ($\nabla_\theta \propto \gamma_t \to 0$), preventing the policy from learning effective late-stage guidance.
+Training with phased injection withholds the policy from early search phases, reducing the diversity of pheromone states observed during optimization.
+These results confirm that the training--inference asymmetry is not merely a convenience but a necessity: the gradient signal must be preserved across all search phases during training, and inference strategies should be applied strictly post-hoc.
+
+\begin{table}[h]
+\centering
+\caption{Training regime vs.\ inference strategy on TSP-5K ($I_{1000}$). Gap (\%) to LKH-3. Each row trains with a different strategy; each column applies a different inference strategy. Best per-column in bold.}
+\label{tab:train-strategy}
+\small
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{4}{c}{Inference Strategy} \\
+\cmidrule(lr){2-5}
+Training Regime & Constant & Anneal & Phased & Phased+Anneal \\
+\midrule
+Constant $\gamma{=}1$ (ours)               & 1.39 & 1.24 & 1.21 & 1.28 \\
+Anneal $\gamma{\to}0$                       & 1.31 & 1.35 & 1.23 & 1.23 \\
+Phased ($\phi{=}0.5$)                       & 1.37 & 1.26 & 1.24 & 1.25 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ----------------------------------------------------------------------
+\subsection{TSPLIB Real-World Instances}
+\label{app:tsplib}
+
+Table~\ref{tab:tsplib} reports per-instance results on 33 TSPLIB instances (1K--86K nodes) using the TSP-1K model with $I_{10000}$.
+We compare three configurations: unguided ACO, DyNACO with guidance annealing only, and DyNACO$^{\dagger}$ with phased injection.
+
+\begin{table}[h]
+\centering
+\caption{TSPLIB per-instance results (TSP-1K model, $I_{10000}$). Gap (\%) relative to known optima.}
+\label{tab:tsplib}
+\small
+\renewcommand{\arraystretch}{0.85}
+\begin{tabularx}{\columnwidth}{lYYYY}
+\toprule
+Instance & $n$ & ACO & DyNACO & DyNACO$^{\dagger}$ \\
+\midrule
+\multicolumn{5}{l}{\textit{In-distribution scale ($n \leq 2{,}500$)}} \\
+\midrule
+\texttt{dsj1000}  & 1,000 & 0.74 & \textbf{0.40} & 0.69 \\
+\texttt{pr1002}   & 1,002 & 0.75 & 0.68 & \textbf{0.47} \\
+\texttt{u1060}    & 1,060 & 0.60 & 0.63 & \textbf{0.47} \\
+\texttt{vm1084}   & 1,084 & 0.20 & 0.54 & \textbf{0.14} \\
+\texttt{pcb1173}  & 1,173 & 0.85 & \textbf{0.81} & 1.09 \\
+\texttt{d1291}    & 1,291 & 1.04 & 1.14 & \textbf{0.89} \\
+\texttt{rl1304}   & 1,304 & 1.68 & \textbf{0.96} & 1.06 \\
+\texttt{rl1323}   & 1,323 & 0.22 & 1.22 & \textbf{0.19} \\
+\texttt{nrw1379}  & 1,379 & 1.17 & \textbf{0.81} & \textbf{0.81} \\
+\texttt{fl1400}   & 1,400 & 1.65 & 2.11 & \textbf{1.01} \\
+\texttt{u1432}    & 1,432 & 1.03 & 0.73 & \textbf{0.46} \\
+\texttt{fl1577}   & 1,577 & 0.34 & \textbf{0.23} & \textbf{0.23} \\
+\texttt{d1655}    & 1,655 & \textbf{1.14} & 1.24 & 1.22 \\
+\texttt{vm1748}   & 1,748 & 0.61 & \textbf{0.26} & 0.39 \\
+\texttt{u1817}    & 1,817 & 1.72 & 1.77 & \textbf{1.53} \\
+\texttt{rl1889}   & 1,889 & 0.31 & \textbf{0.05} & 0.65 \\
+\texttt{d2103}    & 2,103 & 0.55 & 0.53 & \textbf{0.45} \\
+\texttt{u2152}    & 2,152 & 2.03 & 2.63 & \textbf{1.77} \\
+\texttt{u2319}    & 2,319 & 1.25 & 1.27 & \textbf{1.12} \\
+\texttt{pr2392}   & 2,392 & 1.41 & 1.05 & \textbf{0.60} \\
+\midrule
+\multicolumn{5}{l}{\textit{Out-of-distribution scale ($n > 2{,}500$)}} \\
+\midrule
+\texttt{pcb3038}  & 3,038 & 1.42 & \textbf{0.64} & 0.69 \\
+\texttt{fl3795}   & 3,795 & 3.15 & 1.87 & \textbf{0.94} \\
+\texttt{fnl4461}  & 4,461 & 2.24 & 1.37 & \textbf{1.27} \\
+\texttt{rl5915}   & 5,915 & 1.07 & 1.37 & \textbf{0.96} \\
+\texttt{rl5934}   & 5,934 & \textbf{0.85} & 1.02 & 0.94 \\
+\texttt{pla7397}  & 7,397 & 1.29 & 1.03 & \textbf{0.83} \\
+\texttt{rl11849}  & 11,849 & 1.38 & 1.10 & \textbf{0.67} \\
+\texttt{usa13509} & 13,509 & 1.19 & 1.13 & \textbf{0.92} \\
+\texttt{brd14051} & 14,051 & 2.22 & 1.30 & \textbf{1.16} \\
+\texttt{d15112}   & 15,112 & 1.98 & 1.19 & \textbf{1.18} \\
+\texttt{d18512}   & 18,512 & 2.37 & 1.37 & \textbf{1.33} \\
+\texttt{pla33810} & 33,810 & 1.84 & 1.71 & \textbf{1.59} \\
+\texttt{pla85900} & 85,900 & 2.25 & 1.78 & \textbf{1.65} \\
+\midrule
+\textbf{Avg.~(all)} & -- & 1.29 & 1.09 & \textbf{0.89} \\
+\textbf{Avg.~($n{\leq}2.5$K)} & -- & 0.96 & 0.95 & \textbf{0.76} \\
+\textbf{Avg.~($n{>}2.5$K)} & -- & 1.79 & 1.28 & \textbf{1.09} \\
+\bottomrule
+\end{tabularx}
+\vspace{2pt}
+
+\raggedright\footnotesize{DyNACO = model-only with annealing; DyNACO$^{\dagger}$ = phased injection with best of anneal/no-anneal per instance. All gaps in \%. DyNACO$^{\dagger}$ outperforms ACO on 29/33 instances.}
+\end{table}
+
+% ----------------------------------------------------------------------
+\subsection{CVRPlib Real-World Instances}
+\label{app:cvrplib}
+
+Table~\ref{tab:cvrplib} reports per-instance results on 14 CVRPlib instances (1K--30K customers) using the CVRP-1K model with $I_{10000}$.
+
+\begin{table}[h]
+\centering
+\caption{CVRPlib per-instance results (CVRP-1K model, $I_{10000}$). Gap (\%) relative to BKS.}
+\label{tab:cvrplib}
+\small
+\renewcommand{\arraystretch}{0.85}
+\begin{tabularx}{\columnwidth}{lYYY}
+\toprule
+Instance & $n$ & ACO & DyNACO$^{\dagger}$ \\
+\midrule
+\multicolumn{4}{l}{\textit{In-distribution scale ($n \leq 2{,}500$)}} \\
+\midrule
+\texttt{Li\_30}        & 1,040  & 2.67 & \textbf{0.03} \\
+\texttt{Li\_31}        & 1,120  & 2.66 & \textbf{2.38} \\
+\texttt{Li\_32}        & 1,200  & 2.04 & \textbf{1.79} \\
+\texttt{X-n1001-k43}  & 1,000  & 2.88 & \textbf{2.53} \\
+\midrule
+\multicolumn{4}{l}{\textit{Out-of-distribution scale ($n > 2{,}500$)}} \\
+\midrule
+\texttt{Leuven1}      & 3,000  & 2.17 & \textbf{1.75} \\
+\texttt{Leuven2}      & 4,000  & 7.25 & \textbf{5.85} \\
+\texttt{Antwerp1}     & 6,000  & 2.67 & \textbf{2.28} \\
+\texttt{Antwerp2}     & 7,000  & 6.16 & \textbf{5.70} \\
+\texttt{Ghent1}       & 10,000 & 2.32 & \textbf{2.26} \\
+\texttt{Ghent2}       & 11,000 & 7.51 & \textbf{6.96} \\
+\texttt{Brussels1}    & 15,000 & 3.29 & \textbf{2.98} \\
+\texttt{Brussels2}    & 16,000 & 8.23 & \textbf{7.72} \\
+\texttt{Flanders1}    & 20,000 & 2.16 & \textbf{1.93} \\
+\texttt{Flanders2}    & 30,000 & 7.56 & \textbf{7.05} \\
+\midrule
+\textbf{Avg.~(all)}          & -- & 4.25 & \textbf{3.66} \\
+\textbf{Avg.~($n{\leq}2.5$K)} & -- & 2.56 & \textbf{1.68} \\
+\textbf{Avg.~($n{>}2.5$K)}   & -- & 4.93 & \textbf{4.45} \\
+\bottomrule
+\end{tabularx}
+\vspace{2pt}
+
+\raggedright\footnotesize{DyNACO$^{\dagger}$ = phased injection, no annealing. All gaps in \%. DyNACO$^{\dagger}$ outperforms ACO on 14/14 instances.}
+\end{table}
+
+% ----------------------------------------------------------------------
+\subsection{Extended Ablation Tables}
+
+\subsubsection{Environment Stabilization}
+
+Table~\ref{tab:ablation-mmas-app} examines pheromone bound strategies.
+Standard \MMAS{} couples bounds to solution cost, creating non-stationary dynamics.
+Our stabilized variant ($\tau_{\max}{=}1$, $\tau_{\min}{=}1/K$) yields scale-invariant state representations and reduced training variance.
+
+\begin{table}[h]
+\centering
+\caption{Environment stabilization. We report results without inference strategies.}
+\label{tab:ablation-mmas-app}
+\small
+\renewcommand{\arraystretch}{0.85}
+\begin{tabularx}{\columnwidth}{lYYY}
+\toprule
+Bound Strategy & Obj. & Gap (\%)\\
+\midrule
+ACO (Standard \MMAS{}) & 51.8318 & 1.68  \\
+ACO (Stabilized) & 52.0747 & 2.16 \\
+DyNACO (Standard \MMAS{}) & 51.7022 & 1.43 \\
+DyNACO (Stabilized) & 51.6795 & 1.38 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ======================================================================
+% Appendix E: Extended Background and Baseline Analysis
+% ======================================================================
+\section{Extended Background and Baseline Analysis}
+\label{app:related}
+
+\subsection{The Training--Inference Misalignment in Static Guidance}
+\label{app:static-bottleneck}
+
+Neural-guided ACO methods (DeepACO~\cite{deepaco}, GFACS~\cite{gfacs}, GTG-ACO~\cite{gtgaco}) train a model to emit edge heuristics from instance geometry.
+All optimize a \emph{single-step} objective: $\min_\theta \mathbb{E}_{\pi \sim p_\theta(\cdot \mid G)} [ C(\pi) ]$, where a single batch of ants samples tours guided only by the neural heuristic, without pheromone, without an incumbent, and without iterative feedback.
+At inference, however, this static heatmap is integrated into a full ACO loop where pheromone fields evolve over hundreds of iterations, creating a clear misalignment between training conditions and deployment conditions.
+
+Under this paradigm, any model producing edge scores serves the same role.
+HeatACO~\cite{heataco} confirms this empirically: generic heatmap models (AttGCN, DIMES, DIFUSCO) match or exceed ACO-specific architectures in the same pipeline, suggesting that the bottleneck lies in the static integration rather than the model architecture.
+
+Because guidance is computed only once, the fixed heatmap may conflict with the pheromone landscape as it evolves during search, potentially degrading performance in later iterations.
+\DyNACO{} addresses this limitation through dynamic neural guidance: the state-aware representation exposes the evolving pheromone field and incumbent to the policy, while trajectory-aware training over $H{=}10$ outer steps optimizes the policy to provide effective guidance throughout the search.
+
+% ----------------------------------------------------------------------
+\subsection{Gradient Fidelity: Neural Local Search vs.\ Scope-Restricted Refinement}
+\label{app:nls-analysis}
+
+Training on post-local-search rewards is difficult due to the vanishing gradient signal through discrete LS operators (``gradient washout'').
+DeepACO addresses this via Neural Local Search (NLS), which injects neural priors into the LS acceptance criterion.
+
+\textbf{Computational cost.}
+NLS requires $O(N \cdot K)$ neural forward passes \emph{inside} the inner loop, for every ant, at every LS iteration.
+For $m{=}100$ ants with $10{\times}$ neural refinement passes, this creates a $1000{\times}$ multiplier on neural inference cost.
+At $N{=}500$ this cost is manageable; at $N{=}10{,}000$ it becomes the computational bottleneck, and at $N{=}100{,}000$ it is prohibitive.
+
+Furthermore, NLS creates a dependency on dense refinement applied to \emph{every} ant, yet scalable heuristics typically apply LS \emph{sparsely} (e.g., every $k$ iterations) and \emph{elitely} (e.g., only to top solutions).
+
+\textbf{SRR's alternative.}
+Scope-Restricted Refinement, the scalability enabler of dynamic neural guidance, achieves gradient fidelity by limiting the \emph{scope} of the update, not the \emph{nature} of the operator.
+Because the incumbent is already locally optimal, perturbations create only localized regions of sub-optimality.
+SRR repairs these regions to convergence using fast C++ heuristics (2-opt, or-opt), without any neural overhead.
+This preserves the causal link between neural decisions and rewards while allowing use of highly optimized LS backends.
+
+% ----------------------------------------------------------------------
+\subsection{Scalability of Constructive Baselines}
+\label{app:constructive-limits}
+
+End-to-end constructive policies~\cite{attentionmodel,pomo,bq,lehd, invit, sigd} are typically trained on small-scale instances ($N{=}50$ or $100$) and rely on quadratic attention complexity $O(N^2)$ in the encoder.
+When applied to large-scale instances ($N{\geq}1{,}000$), these models suffer from out-of-distribution degradation, as the learned representations do not transfer across scales, compounded by memory exhaustion from the $O(N^2)$ encoder.
+The ``OOM'' entries in Table~\ref{tab:main-results} reflect this inherent limitation.
+
+\textbf{Decomposition attempts.}
+Recent methods address this through divide-and-conquer (GLOP~\cite{glop}, H-TSP~\cite{htsp}) or hierarchical construction (SIL~\cite{sil}, LEHD~\cite{lehd}).
+However, decomposition methods depend on global context embeddings that degrade at extreme scales, and hierarchical methods incur prohibitive runtimes (SIL PRC$_{1000}$: 42h at TSP-100K).
+
+\textbf{Sparse-graph scaling.}
+\DyNACO{} operates on fixed-size $K$-NN neighborhoods ($K{=}32$), so the GNN processes each neighborhood identically regardless of $N$.
+GPU memory is proportional to $n \cdot K$, not $n^2$, and per-ant sampling cost is $O(M \cdot K)$, independent of problem size.
+At TSP-100K, DyNACO I$_{10000}$ completes in 46 minutes; SIL PRC$_{1000}$ requires 42 hours.
+
+% ----------------------------------------------------------------------
+\subsection{Ant Colony Optimization and Adaptive Control}
+\label{app:aco-background}
+
+Perturbation-based ACO~\cite{partialACO, P-ACO, faco} bounds differences between newly constructed solutions and the incumbent, yielding focused search with tighter LS coupling.
+A natural question is whether a learned policy can further improve this family by conditioning on the evolving solver state.
+
+Adapting ACO parameters during search has a long history.
+\emph{Adaptive} or \emph{self-adaptive} ACO variants dynamically adjust evaporation rates, pheromone bounds, or exploration parameters based on search progress~\cite{adaptant,adaptant2}.
+These methods typically rely on hand-crafted rules (e.g., restart upon stagnation, increase $\rho$ when diversity drops).
+By contrast, dynamic neural guidance is \emph{learned} from data: the state-aware representation conditions on richer features (per-edge pheromone distribution, incumbent topology) rather than scalar metrics, and trajectory-aware training optimizes the policy to exploit these features effectively across the full search trajectory.
+Prior work has explored pheromone information as features for learning.
+RLACO~\cite{rlant} uses RL to tune global ACO parameters based on convergence metrics.
+To our knowledge, no prior neural ACO method conditions on per-edge pheromone statistics to produce \emph{edge-level} guidance during search; existing approaches either tune global parameters or use pheromone summaries for meta-level decisions.
+In contrast, \DyNACO{}'s dynamic neural guidance operates at a finer level of granularity: rather than selecting operators or tuning scalars, the state-aware policy directly shapes per-edge transition probabilities within a fixed operator (perturbative ACO sampling), providing search-phase-dependent guidance at the cost of requiring differentiable integration with the sampling process.
+
+\end{document}
+ific

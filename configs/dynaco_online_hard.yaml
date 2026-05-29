@@ -1,0 +1,50 @@
+# Overnight hard generated-data online DyNACO experiment.
+#
+# This config is intended for a real train-then-test QUBO-stage benchmark:
+# generated train/test GFAs are disjoint, exact enumeration is infeasible, and
+# neural_aco is evaluated on held-out GFAs with fresh pheromone. It tests on
+# every current repo GFA dataset plus generated held-out GFAs.
+
+test_glob:
+  - examples/*.gfa
+  - data/*.gfa
+  - synthetic_quality_sweep/**/*.gfa
+
+generate_synthetic_train: 1000
+generate_synthetic_test: 100
+synthetic_dir: results/dynaco_online/generated_overnight
+synthetic_seed: 1000
+synthetic_min_segments: 48
+synthetic_max_segments: 96
+synthetic_min_length: 40
+synthetic_max_length: 160
+synthetic_bubble_rate: 0.65
+synthetic_orientation_rate: 0.35
+synthetic_shortcuts: 16
+
+copy_numbers: ones
+penalties: 200,50,1
+alpha_qubo: 1.1
+
+epochs: 400
+instances_per_epoch: 16
+H: 10
+mini_H: 10
+n_ants: 32
+lr: 0.0005
+alpha: 1.0
+beta: 1.0
+gamma: 1.0
+rho: 0.1
+elite_frac: 0.25
+grad_clip: 1.0
+
+units: 64
+depth: 4
+seed: 1
+device: cuda
+
+eval_time_limit: 2
+no_aco_eval: false
+
+out: results/dynaco_online/overnight.pt

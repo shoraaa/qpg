@@ -1,0 +1,54 @@
+# DyNACO training with paper-pipeline GFAs generated during training.
+#
+# This mirrors the reference DyNACO surface: training instances are generated
+# from the problem distribution while training proceeds, and validation is a
+# fixed generated set. The segment cap is required by the current dense QUBO
+# builder; remove it only after moving QUBO construction/sampling to a sparse
+# path.
+
+paper_pipeline_train: true
+paper_pipeline_validation: true
+paper_pipeline_cache_dir: results/dynaco_online/paper_pipeline_online_cache
+paper_pipeline_annotators: mg,km,ga
+paper_pipeline_test_sequences: 5
+paper_pipeline_shred_depth: 30
+paper_pipeline_train_start_seed: 1
+paper_pipeline_val_start_seed: 100001
+paper_pipeline_min_train_instances: 16
+paper_pipeline_val_instances: 16
+paper_pipeline_max_segments: 30
+paper_pipeline_max_horizon: 300
+paper_pipeline_generation_attempt_limit: 25
+
+generate_synthetic_train: 0
+generate_synthetic_test: 0
+
+copy_numbers: paper
+penalties: 200,50,1
+alpha_qubo: 1.1
+
+epochs: 10
+instances_per_epoch: 16
+H: 10
+mini_H: 10
+n_ants: 32
+lr: 0.0005
+alpha: 1.0
+beta: 1.0
+gamma: 1.0
+rho: 0.1
+elite_frac: 0.25
+grad_clip: 1.0
+
+units: 64
+depth: 4
+seed: 1
+device: cuda
+
+validate_every: 1
+validate_limit: 16
+skip_final_eval: true
+eval_time_limit: 2
+no_aco_eval: false
+
+out: results/dynaco_online/paper_pipeline_online.pt

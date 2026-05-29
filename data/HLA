@@ -1,0 +1,3098 @@
+Warning: this file is a long brain dump documenting ideas, problems,
+solutions, experimental command lines, and so on.
+
+It's mainly for me to be able to refer back to and to document
+progress rather than something for others to read.
+
+=============================================================================
+
+HLA genes and stats
+https://www.ebi.ac.uk/ipd/imgt/hla/about/statistics/
+ftp://ftp.ebi.ac.uk/pub/databases/ipd/imgt/hla/
+
+Genbank query
+https://www.ncbi.nlm.nih.gov/nuccore/?term=DQA1+human+complete+cds
+in seq4d:/local/scratch01/jkb/quantum/
+
+Pangenome paper
+https://www.nature.com/articles/s41586-023-05896-x
+"We selected five clinically relevant complex SV loci for detailed
+structural analysis: RHD-RHCE, HLA-A, CYP2D6-CYP2D7, C4 and LPA".
+(Other useful targets for pangenome construction and tangle resolution?)
+
+# mamba install vcfbub vcflib wfmash
+
+See also pggb worked example:
+https://pggb.readthedocs.io/en/latest/rst/quick_start.html
+pggb -i data/HLA/DRB1-3123.fa.gz -p 70 -s 3000 -n 10 -t 16 -V 'gi|568815561' -o out
+
+odgi layout -i out2/*smooth.final.gfa -o _.layout
+odgi draw -i out2/*smooth.final.gfa -c _.layout -p _.png
+odgi draw -i out2/*smooth.final.gfa -c _.layout -s _.svg
+
+
+Also "bandage" for viewing the gfa
+
+pggb HLA defaults  	       4737 S nodes
+-c 2 -G 10,100	  	       3423
+-G 10			       1737
+-G 10 -s 1000	  	       1740
+-G 10 -s 1000 -p 90	       1685
+-G 10 -s 5000 -p 90	       1732
+-G 100 -s 5000 -p 90	       3380
+-G 100 -s 1000 -p 90 -k30      1852
+" -j 1			       1845
+" -e 1 	       	     	       1149
+" -e 10			       1137
+-G10 -s1000 -k30 -p90 -e10     1145
+-G10 -s5000 -k30 -p90 -e10     1165
+-G10 -s5000 -k30 -p92 -e10     1111
+-G10 -s5000 -k30 -p93 -e10      951 => 1 distinct graph
+-G10 -s5000 -k30 -p94 -e10      699 => 2 distinct graphs
+-G10 -s5000 -k30 -p95 -e10       61 => 4 distinct graphs
+-G10 -s5000 -k30 -p70 -e10     1173
+-G10 -s5000 -k35 -p93 -e10      726 (longer exact match needed)
+-G10 -s5000 -k35 -p93 -e10 -n5  727
+-G10 -s5000 -k35 -p93 -e10 -n1  711
+-G10 -s5000 -k35 -p93 -e10 -n20 740
+-G100 -s5000 -k35 -p93 -e10     725
+G*    -s5000 -k35 -p93 -e10     730  (-G 100,500,1000)
+G*    -s5000 -k35 -p93 -e0     4397
+-p70 -n10 -s500 -k35 -e1        893 (p70 n10 s500 is from HLA example
+-p70 -n10 -s500	     	       4687
+-p70 -n10 -s500 -k50 -e1        440
+-p70 -n10 -s500 -k75 -e1        195
+-p70 -n10 -s500 -k100 -e1        90 => 2 graphs
+
+Aligning the 12 input reads with GraphAligner against the 440 node
+graph gives 81,1,0,0,71,0,0,1,81,0,81,0 mismatches.
+Against the 4687 node graph it is 1,1,0,0,1,0,0,1,1,0,1,0 mismatches.
+
+An example of the alignment 'cg' tag for the first seq (81 vs 1
+mismatch) is:
+
+10938=3D1=30D5=1X4=2D1=4D1=1X3D6=1I2=3X3=2D2=2D2=3D1=1D2=2X1=1X2=1D5=1D1=1X2=1D1=3X3D3=1D1=4X2=7D2=13402=1D1=
+
+vs
+
+11067=1D1=
+
+So it's mostly deletions, with the biggest being 30 bp.  3 sequences
+have a 30bp deletion, and one has a 63bp deletion.
+
+Ideally we need a way to get those nodes added to this graph, but not
+to care about all the X cases and maybe the 1D/1I cases as they're
+largely irrelevant as far as alignment goes.
+
+
+With -k75 graph NMs are 63 max and we have 3 seqs with 58D.
+So that's actually a better graph?
+
+
+However there is more collapsing of nodes in the big graph:
+
+awk '/^S/ {a+=length($3)} END {print a}' /tmp/out.4687/*.gfa
+
+nodes    seq len
+4687	 23373
+ 440	 51545
+ 195	 53569
+
+/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g _.gfa -f ../pggb/data/HLA/DRB1-3123.fa.gz -x vg -a /tmp/out.gaf
+
+sed -n 's/.*NM:i://p' /tmp/out.gaf |sed 's/[^0-9].*//'
+0
+783
+1099
+239
+71
+1105
+240
+71
+774
+1308
+783
+783
+0
+1313
+5
+534
+493
+240
+70
+
+So many differences, but small:
+
+sed -n 's/.*cg:Z://p' /tmp/out.gaf | sed 's/[X=ID]/&#/g'|tr '#' '\012'|sort -n|grep -v =
+8D
+8I
+8I
+9I
+9I
+9I
+10I
+10I
+10I
+11D
+11D
+11D
+11D
+12D
+12D
+16D
+16D
+19D
+19D
+
+
+With ./minigraph -cxggs /tmp/_[0-9]*.fa -l4000 -d4000 -L10 > _.gfa
+we see 132 nodes and:
+...
+5I
+5I
+6I
+6I
+6I
+6I
+8D
+9I
+9I
+9I
+
+
+So longest edit vs -L param:
+L  	nodes   longest	  NM	N.align
+2  	511	8D	  5126	39
+3  	473	12D	  5812	28
+4  	336	8D	  5802	39
+5  	308	8D	  6632	20
+6  	247	9I	  7313	21
+7  	229	9I	  7310	21
+8  	167	9I	  7882	21
+9  	138	9I	  8183	21
+10 	132	9I	  8230	19
+11 	117	9I	  8413	19
+12 	111	9I	  8492	19
+13 	92	9I	  8701	19
+14 	89	9I	  8725	19
+15 	77	11D	  8905	19
+16 	68	11D	  9059	19
+17 	62	11D	  9186	19
+18 	59	11D	  9234	19
+19 	53	16D	  9332	19
+20 	53	16D	  9332	19
+21 	50	16D
+22 	48	16D
+23 	48	16D
+24 	45	16D
+25-31 	42	19D
+32-33 	39	19D
+34-46 	36	19D
+47-50 	33	19D	  9911	19
+200	24	19D
+1000	1	19D	  9520	61 (of 12 seq)
+
+So 1 node seq is enough to maximise out at a 19bp deletion.
+
+-L 200 gives 24 nodes, biggest change is 19D, total change is 10445,
+ max change per seq is 1377.  21 alignments
+
+-L 20 is 53 node, 16D, 9331 1252, 19
+-L 18 is 59 node, 11D, 9234 1204, 19  <<<
+-L 14 is 89 node, 9I,  8725 1151, 19
+
+
+Maybe -L 18?
+
+-L 18 -k 19 and lower is good (55-59 nodes)
+-L 18 -k 20 is 28 nodes, but 30D and now 29 alignments
+
+
+-j 0.3 (was .1) reduces number of alingments down to ~13.  Also helps
+ to reduce node count too.
+
+-L 25 -k 15 -j 0.3 => 46 node, 11I, 9853 1272, 13 seq
+
+
+=============================================================================
+
+Manual.
+
+0,0 - 630,630  match              0.6kb
+630,630 - 1500,1030 inversion plus indel
+1500,1030 - 6233,5758 match      ~4.7kb
+6233,5758 - 6214,8095 deletion    2.3kb
+6214,8095 - 8589,10451 match      2.4kb
+8589,10451 - 8570,13130 deletion  2.7kb
+8570,13130 - 11068,15590 match    2.5kb
+
+Plus some sundry repeats
+
+TODO: CNV at ~12kb in.  3 vs 2 vs 1 copies in some seqs
+
+
+seq3: two copies with 1 SNP in 13KB.  Correct, or assembly error?
+
+--------------------
+6/10 vs 2/5/7/8
+
+1 - 600:  12% mismatch.
+
+601/597 - 937/1093  diff seq (bubble)
+
+938/1094 - 4043/4181 match
+
+4043/4181 - 5244/4181 gap (del in s6)
+
+5244/4181 - ?  match
+
+small ins in s2 (58bp)
+
+5290/4240 - 6325/5245 match
+
+s6: GGGAAGACACTATCTGGCCCCACCCGCAACCCCGACAACAC
+s2: TGAGAAGACACTGACAGTGACGCCGCCATCCGGGGCTCCCTGGGTGGGGTGCGGGCACTGGGAACCTTAACCGGCCCC*CGCCGCAACGCCCACCACCA
+
+6370/5345 - 7880/6822 match
+
+s6 ins vs s2 "AA" (AA could be attached to another node?)
+
+8195/6827 - 9360/7985 match
+
+s6 ins vs s2 small ins
+s6: ATGCCATGACAGACATATAGAACTTTTTTTTTTTTTTGAGACGGAGTTTCGCTCTTTTGCCCAGGGTGGAGCTGGAGTGCAGTGGCACGATCTCAGCTCACTGCAAGCTCCGCCTCCCAGGTTCATGCCATTCTCCTGCCTCAGCCTCCCAAGTAGCTGGGACTACAGGTGCACACCACCACGCCCAGCTAATTTTTTGTATTTTTAGTAGAGACGAGGTTTCACCATGTTAGCCAGGATGGTCTTCATCTCCTGACCTCGTGATCTGCCCGCCTTGGCCTCCCAAAGTGCTGGGATTACAGGCATGAGCCACCGCACCCAGCCT
+s2: CATTATAGACATAC
+
+9685/8007 - 12244/6125 match.  NB: last 600-900bp or so is 2 copies
+rep on s6 and 3 copies on s2.  Make a loop instead?  Maybe not
+accurate enough.  TODO
+
+3rd rep copy below in s2
+s6: AAATCTCCGTCTC
+s2: GAAACTCCGTCTCAAAAAAAAAAAAAATAGGCCAGGCGTGGTGGCTCACACCTGTAGTCTCAGCACTTTGGGAGGCTGAGGCAGGTGGATCACGAGGTCAGGAGATGGAGACCACCCTGGTTAACATGACAAAATGCCCTCACTACTAAAAATACTAAAAATTAGCCAGGCGTGGTGGCAGGTGCCTGTAGTCCCAGCTACTAGGGAGGCTGAGGCAGGAGAATGGCATGAACCCAGGAGGTGGAGCTTGCAGTGAGCTGAGATCACGCCACTGCACTCCAGCCTGGGCAACAAAGCGAGACTCCATCTTAAAAAAATAAATAAATAAATAAATAAAATAAAT
+
+12260/5770 - 13805/4215 match
+
+Small ins
+s6: GAGGAGTATCCAAGTATTCAGGGGTCTGAGAGACCGATCAAGAGGA
+s2: TA
+13853/4206 - end  match
+
+Overall 24% mismatch!
+
+--------------------
+2/5/7(+6/10) vs 1/9/11
+
+Ie 2 vs 1 in dotter.
+
+~1kb match (some small indels)
+
+~400bp ins in s1
+s1: TGTAGGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACGAGGTCAGGAGATCGAGACCATCCTGGCTAAAACGGTGAAACCCCGTCTCTACTAAAAATACAAAAAATTAGCCGGGCGTAGTGGCGGGCGCCTGTAGTCCCAGCTACTTGGGAGGCTGAGGCAGGAGAATGGCGTGAACCCGGGAGGCGGAGCTTGCAGTGAGCCGAGATCCCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAACCTCTTGTAAGA
+s2: CCTAAGACAGG
+
+865/1380 - 4850/6200 match (noting existing indel from s10)
+
+s2: 6850-7880 ins in s1 (noting additional data in s10)
+
+9680/6380 - 11890/8610 match
+
+11890/8610
+Two ins, mainly s2, some variance in seqs
+
+s2: CAAAAAAATAAAATAAAATAAAAATAAATTGAATATAAATTGACTCTCCTTGTAACCATACAGTAGCTTCTCGTATCTATTTAAATAAAATTCAGTCCGGCCGCGGTGGCTCATGCCTGTAATCCCAGCACTTTGGGAGGCCAAGGCAGACAGATTATCTGAGGTCAGGAGTTCGAGACCAGCATGGTCAACATGGTGATACCCGATGTCTACTAAAAATACAAAAAAATAAAAATTAGCCAGGTATGGTGGTGGGTGCCTGTAATCTCAGATACTTGGGAAGCTGAGGCAGGAGAATCACTTGAACCAGGGAGGCGAAGGTTGCAGTGAGCCGAGATTGCACCATTGCACTCCAGCCTGGGCAACAAGAACGAAACTCCGTCTCAAAAAAAAAAAAAATAGGCCAGGCGTGGTGGCTCACACCTGTAGTCTCAGCACTTTGGGAGGCTGAGGCAGGTGGATCACGAGGTCAGGAGATGGAGACCACCCTGGTTAACATGACAAAATGCCCTCACTACTAAAAATACTAAAAATTAGCCAGGCGTGGTGGCAGGTGCCTGTAGTCCCAGCTACTAGGGAGGCTGAGGCAGGAGAATGGCATGAACCCAGGAGGTGGAGCTTGCAGTGAGCTGAGATCACGCCACTGCACTCCAGCCTGGGCAACAAAGCGAGACTCCATCTTAAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAATTCAAA
+s1: AAAATAAAATAAAATAAACAAACAAATAAATAAATAATAAAATTTAATTT
+
+8660 to end: match
+
+--------------------
+
+s3 vs s2 et al
+Trim s3 at 15600 (2 copies)
+
+1/1 - ~600 match
+600 - 1030/930  bubble
+
+1030/930 - 6740  match
+s3 insertion; but approx matches another insertion in s6/s10 too.
+Realign to that
+
+s3: CCATAAAGAACTGAATTGGGCAGTGACTGTATAAAAGATGTGAGTCTAGGCCAGGCGCGGTGGCTCAAGCCTGTAATCCTAGCACTTTGGGAGACTGAGGCAGGTGGATTGCCTGAGCTCAGGAGATCAGCCTGGGCAACATGGTAAAACCCCGTCTCTACTAAAATACAAAAAATTAGCTGGGCATGGCGGGGTGCACCTGTAATCCCAGCTACTCGGGAGGCTGAGACGGGAGAATCACTTGAACCTCGGAGGCAGAGGTTGCAGTGAGCCGAGAGGGAGCCACTGCACTCCAGCCTGGGTGACAGAGCAAGACCCCATTTCAAAAAAACAAACAAACAAAAAAGTGAGTCTAG
+
+6800-10800 match
+
+~2.3kb ins in s3
+
+s3 ~13k onwards match (from AAAATAAAATTCAAATTTTTTACCGTGGACATCAGAG)
+(12950/12275 onwards)
+
+
+12950 vs 12275
+
+18449 at 18410   49<
+
+
+TODO: compare s6/s10 ins vs others. (b3.0 vs b3.1 vs b3.i1 etc)
+s6 vs s2,5,8?
+
+It's about 600 in.
+s6 600-935 has no match vs 2,5,8
+s6 600-941 has inverse match vs 1,9,11  <<<<<
+(last 40-10% or so of the 1,9,11 insertion)
+
+Can replicate this way, or just make a new node.
+
+
+-----------------------------------------------------------------------------
+
+Cons for CNV:
+
+prefix:
+TAAATTGAATATAAATTGACTCTCCTTGTAACCATACAGTAGCTTCTCGTATCTATTTAAATAAAATT
+
+CNV:
+CAGGCCGGGCGTGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCAAGGCAGGTGGATCACGAGGTCAGGAGATCGAGACCAGCCTGGCTAACATGGTGAAACCCCATCTCTACTAAAAATACAAAAAATTAGCCAGGTGTGGTGGCAGGTACCTGTAGTCCCAGCTACTTGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCAGGAGGCAGAGGTTGCAGTGAGCCGAGATTGCGCCACTGCACTCCAGCCTGGGCAACAGAGCAAGACTCCGTCTCAAAAAAATAAAAAAAAATAAAAA
+
+suffix:
+TTGACTGTCCTTGTAACCATACAGTAGCTTCTCATATCTATTCAAATAAAATT
+
+
+Good match to s2 from CNV bp 22:
+GCCTGTAATCCCAGCACTTTGGGAGGCCAAGGCAG
+============t===================tg=
+a======g==t================tg======
+             ^^^^^^^^^^^^^^
+
+TAAATTGAATATAAATTGACTCTCCTTGTAACCATACAGTAGCTTCTCGTATCTATTTAAATAAAATT prefix
+               TTGACTGTCCTTGTAACCATACAGTAGCTTCTCATATCTATTCAAATAAAATT suffix
+
+So (CNV SUFFIX?)* (TAAA)*
+
+(CNV TTGACTGTCCTTGTAACCATACAGTAGCTTCTCATATCTATTC? AAAT*)*
+
+
+
+/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -b 50 -C -1 -g mafft.gfa -f pggb/data/HLA/DRB1-3123.fa.gz -x vg -a mafft.gaf;awk '{print $1}' mafft.gaf|uniq -c
+
+See
+https://github.com/lh3/gfatools/blob/master/doc/rGFA.md#the-graph-alignment-format-gaf
+for output format.
+
+
+s3 vs mafft      aligns with 0-15600
+s3 vs mafft+loop aligns with 0-10858, 11964-13164 and 13142-15600
+Similarly for s4.
+
+=> graph is wrong somewhere :(
+
+s3 start (0-11k) is:
+
+>m1>m2>b3.0>cons2>cons3>i3>cons4>i4.1>i4.1.1>i4.2>cons5>cons6>cnv>cnvx>cnvstr>cnvstr>cnv
+
+Then s3 ~12k to 13k is:  >i2>cons3
+
+Finally s3 13k-16k is: >cnv>cnvstr>cons7>cons8
+
+
+
+
+
+=============================================================================
+
+1. First 11 seqs from PGGB.  Rename s1 to s11 and complement s7.
+
+2. Align with mafft:
+   mafft --thread 8 --maxiterate 1000 --globalpair train.fa > train.mafft
+
+3. Build a gap5 database, one read per contig.
+   tr '-' '*' < train.mafft > train.mafft2
+   tg_index -Q 30 train.mafft2
+
+4. Manually merge the contigs together to form one contig.  (Need to
+   automate this).  Generally up to 20% divergent.
+
+5. Annotate via tags.
+
+   Cons for consensus regions		blue
+   A1 to Ax for differing alleles	yellow/green
+   I1 to Ix for insertions
+   CNV for copies			
+   STR for short reps			red
+
+See /nfs/users/nfs_j/jkb/work/quantum/train.2
+
+
+Model as (CNV STR+ link*)+
+
+link*.  Right now it's just "link"
+
+s3/s4 still fail.  Why?
+
+
+----------------------------------------------------------------------
+
+Comparison
+
+/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -C -1 -b 100 -g pggb-2667.gfa -f DRB-train.fa -x vg -a out.gaf;awk '{print $1,$3,$4}' out.gaf
+s1 0 11068
+s2 0 13403
+s3 0 15600
+s4 0 15590
+s5 0 13413
+s6 0 14739
+s7 0 13403
+s8 0 13403
+s9 0 11068
+s10 0 14733
+s11 0 11065
+
+NMs are 0.
+
+/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -C -1 -b 100 -g mafft+cons.gfa -f DRB-train.fa -x vg -a out.gaf;awk '{print $1,$3,$4}' out.gaf
+s1 1 11068
+s2 1 13403
+s3 0 15600
+s4 0 15590
+s5 1 13413
+s6 0 14739
+s7 0 13401
+s8 1 13403
+s9 1 11068
+s10 0 14733
+s11 1 11065
+
+NMs are:
+s1  479
+s2  521
+s3  844
+s4  853
+s5  520
+s6  894
+s7  521
+s8  521
+s9  479
+s10 893
+s11 480
+total 7005
+
+Biggest indel is 11I, 11D, 8I, 8D, etc.
+
+49 hla-drb1.fasta.gz
+
+mafft+cons.gfa:	NM total 25664 (biggest 606, avg 524)
+pggb-2667.gfa:  NM total  2465 (biggest 364, avg  50)
+
+--------------------
+/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g mafft+cons.gfa -f hla-drb1.fasta.gz -x vg -a out.gaf
+sed -n 's/.*cg:Z://p' out.gaf|awk '{print $1}'|sed 's/[=XID]/&#/g'|tr '#' '\012'|sort -n|grep -v =|uniq -c
+...
+   1499 2X
+     90 3D
+      8 3I
+    197 3X
+     40 4D
+     41 4I
+     37 5D
+     15 5I
+      6 6D
+     21 7I
+      5 8D
+      1 8I
+      2 9D
+      3 10I
+
+total NM 25044 (between 475 and 591 per alignment)
+
+TODO: plot diff per site per node position in graph?  Would allow us
+to optimise the graph further
+
+Common mis-hits:
+# c1    69 C    5       15      75	8 3 0 0 in train
+# c1    131 C   7       13      65	6 5 0 0
+# c1    138 G   7       13      65	8 3 0 1
+# c1    151 A   7       13      65	7 4 0 0
+# c1    152 A   7       13      65	8 3 0 0
+# c1    254 C   5       15      75	8 3 0 0
+# c1    256 A   6       14      70	8 3 0 0
+# c1    300 T   6       14      70	8 3 0 0
+# c1    372 C   6       14      70	8 3 0 0
+# c1    395 T   6       14      70	8 3 0 0
+# c1    404 T   6       14      70	8 3 0 0
+# c1    458 C   5       15      75	8 3 0 3
+# c1    473 C   6       14      70	8 3 0 0
+# c10   36 C    1       14      93	4 4 0 0  fixed
+
+a1c0 TGTGTCCAGAGTTTGTTCCTTCCGGTGGGTTTGTGGTCTCGCTGACTTC
+     TGTGTCCAGAGTTTGTTCCTTCCGGTGGGTTCGTGGTTTCGCTGACTTC
+                                    ^     ^
+
+a1i2 GGCGCGGTGGCTCACGCCTGTAAT...TCTCAAAAAAAAAAAAAAAAAAAAAAACAA...
+     GGCGCGGTGGCTCACACCTGTAAT...TCTCAAAAAAAAAAAAAAAAAGAAAC...
+                    ^
+c10  ATTTTCAGAAAGAGCACAGTGTGAACCAGTGCTCTTAG...
+     ATTTTCAGAAAGAGCACAGCGTGAACCAGTGCTCTCAG...
+                                         ^
+
+./gaf2gfa.pl mafft.gaf $f mafft+cons.gfa | perl -lane 'next unless /^#/;chomp($_);print "$_\t",int(100*($F[5]+$F[6]+$F[7])/($F[4]+$F[5]+$F[6]+$F[7]))' | less
+
+--------------------
+cnvstr differences.
+Maybe this matters if first, second or third occurence of this node
+due to 1, 2 or 3 copies numbers of cnv?
+
+# cnvstr        0 A     459     0       0       15      15
+# cnvstr        1 A     457     2       0       0       2
+# cnvstr        2 A     454     5       0       17      22
+# cnvstr        3 T     373     65      21      120     206 <<<
+
+AAAT vs AAAAT?
+
+# cnvstr	0 A	346	30	0	0	30
+# cnvstr	1 A	376	0	0	61	61
+# cnvstr	2 A	376	0	0	3	3
+# cnvstr	3 A	329	18	29	65	112
+# cnvstr	4 T	267	88	21	21	130
+
+AAAT is fewer errs than AAAAT
+
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAAT
+AAAAAAAAAAAAAT
+AAAAAAAAAAAAAT
+AAAAAAAAAAAAAT
+AAAAAAAAAAAAAT
+AAAAAAAAAAAAAT
+AAAAAAAAAAAAAT
+
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+
+AAAAAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+                       xx
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+                                                        xx   xx
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+
+AAAATAAAATAAAATAAACAAACAAATAAATAAATAATAAAAT
+
+AAAATAAAATAAAATAAACAAATAAATAAATAATAAAAAT
+AAAATAAAATAAAATAAACAAATAAATAAATAATAAAAAT
+
+AAAATAAAATAAAATAAATAAACAAATAAATAGGTAAATAAATAATAAAAT
+AAAATAAAATAAAATAAATAAACAAATAAATAGGTAAATAAATAATAAAAT
+
+Mix of AAAT and AAAAT?
+
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+   x                       xx  xx  xx  xx  xx  xx  xx  xx  x x x  x
+AAATAAATAAATAAATAAATAAATAAATAAATAAATAAATAAATAAATAAATAAATAAATAAATAAAT
+
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+   x       xx  x x x        xx xx xx  x
+AAATAAATAAATAAATAAATAAATAAATAAATAAATAAAT
+
+It's a mix of repeats A*T for differing lengths of A.
+Ideal model is ((AAA|AAAA|AAAAA)T)*
+
+Eg:
+AAAAAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+   x
+AAATAAATAAATAAATAAATAAATAAAATAAATAAATAAATAAATAAATAAATAAATAAAATAAAAT
+
+AAAAAAATAAAATAAAATAAAAATAAATTGAATATAAAT
+   x                        xx    x
+AAATAAATAAAATAAAATAAAAATAAATAAAATAAAAAT
+
+But matching kmers to it is complex.
+
+
+=============================================================================
+
+a1i2: one sequence with big difference
+      also 12 poly-A diff at end with some seqs
+
+c1:   several large differences.  Needs a separate seq entry?  Dotplot this
+
+c10: mostly good, but an 8bp common deletion
+     TTACCAACAGTCACAATCATATAATTTATCTTTCACATCATCTTCTTT
+     TTACCAA--------ATCATATAATTTATCTCTCACATCATCTTCTTT
+
+     Long segment so wouldn't affect path.
+
+c11: long and mostly fine, but some variations and indels
+GTTGCTGTCACTGTGGCT------TGCATGGTTAGCACTGTAATCCATGTCCATGTGTC
+GTCGCTGTCACTGTGGCTGTGGCTTCCATGGGTAACACCGTAATCCATGCTCATGTGTC
+
+c15: a small fluctuation in indels
+c17: as above; +- 7bp
+c19: a small fluctuation in indels
+
+c2: a collection of indels that add up, 7bp biggest?
+    AGGAGCAGAAACAGACCATGT-GACCCATGAA--GCGTGAAG-------TGTCTGTCACAGGATCCA
+    AGGGGCAGAAAGGAGCAGAGACAGACCATGTGACCCATGAAGCCTGAAGTGTCTGTCACAGGATCCA
+
+c3: many indels that add up over time
+TGTCCATTACCTACCAAATACAACAGGTAATTCGTAGAGCAGAGCAGTAATTACAACTGGCCAAT
+TGTCCATTAC---------ACAACAGGTAATTGGTTGAGCAG-----TAATTATAACTGGCCAAT
+
+c8:  12bp del
+AGGGTGCCAGAGAAGGACCCTCTTAATAGTGACGGTT-CAGATGTGACTT
+AGGGTGCCAGAGAAG------------AGTGACAGTTACAGATGTGACTT
+
+c9: graph seems the rarer variant (9 of 40)
+TAAAACACTATGTACATGTTTTTGATGTTTTTGTCTTTATGTTTGATTGAAGTGTGAAAAT
+TAAAACACTAT------ATTTTTGATGTTTTTGTCTTTATGTTTGA----AGTGTGAAAAT
+...
+CAAGCAAAAATAAACCA-TAAAGAACTGAATTGGGCAGTGACTGTATAAAAGATGTGAGTCTAG
+CAAGCAAAAATAAAAGACTAAAC--------TGTGTGGTGAGTGTATAACAGATGTGAGTCTAG
+
+cnv: several small common indels between copies of rep.
+
+cnvstr: highly variable in length!
+Plus mix of AAAT, AAAAT, AAAAAT
+
+Maybe better modelled as a complex of repeated choices?
+
+
+Main changes:
+# a1c0  7 A     28      21      0       0 21
+# a1c0  31 C    30      19      0       0 19
+# a1c0  37 T    28      21      0       0 21
+
+# a1c1  0 C     44      5       0       0 5
+# a1c1  1 C     31      18      0       0 18
+# a1c1  2 G     46      3       0       0 3
+# a1c1  3 C     49      0       0       0 0
+# a1c1  4 G     31      18      0       2 20
+# a1c1  5 A     30      19      0       0 19
+# a1c1  6 A     47      2       0       0 2
+# a1c1  7 T     28      21      0       0 21
+Maybe just two alternative sequences here?
+
+# a1c1  38 T    31      18      0       0 18
+# a1c1  39 G    49      0       0       0 0
+# a1c1  40 G    49      0       0       0 0
+# a1c1  41 C    49      0       0       0 0
+# a1c1  42 A    49      0       0       0 0
+# a1c1  43 C    31      18      0       0 18
+# a1c1  44 A    28      21      0       0 21
+# a1c1  45 G    49      0       0       0 0
+# a1c1  46 A    49      0       0       0 0
+# a1c1  47 C    39      10      0       0 10
+# a1c1  48 C    49      0       0       0 0
+# a1c1  49 C    49      0       0       0 0
+# a1c1  50 G    28      21      0       0 21
+# a1c1  51 A    49      0       0       0 0
+# a1c1  52 A    49      0       0       0 0
+# a1c1  53 G    49      0       0       0 0
+# a1c1  54 A    49      0       0       0 0
+# a1c1  55 G    49      0       0       0 0
+# a1c1  56 T    49      0       0       0 0
+# a1c1  57 G    44      5       0       0 5
+# a1c1  58 A    31      18      0       0 18
+# a1c1  59 G    49      0       0       0 0
+# a1c1  60 C    49      0       0       0 0
+# a1c1  61 A    49      0       0       0 0
+# a1c1  62 A    28      19      2       0 21
+Similarly 2 populations
+
+# a1c2  0 G     49      0       0       0 0
+# a1c2  1 C     28      21      0       0 21
+# a1c2  2 A     28      21      0       0 21
+# a1c2  3 T     28      21      0       0 21
+Rare version in graph
+
+# a1c2  20 C    31      18      0       0 18
+# a1c2  21 A    49      0       0       0 0
+# a1c2  22 G    48      1       0       0 1
+# a1c2  23 A    49      0       0       0 0
+# a1c2  24 G    44      5       0       0 5
+# a1c2  25 T    49      0       0       0 0
+# a1c2  26 G    49      0       0       0 0
+# a1c2  27 T    30      19      0       0 19
+# a1c2  28 G    30      19      0       0 19
+Diff segment?
+
+# a1c2  52 T    31      18      0       0 18
+# a1c2  53 G    31      18      0       0 18
+# a1c2  54 A    49      0       0       0 0
+# a1c2  55 T    49      0       0       0 0
+# a1c2  56 T    49      0       0       0 0
+# a1c2  57 A    28      21      0       0 21
+
+# a1c2  143 C   28      21      0       0 21
+# a1c2  144 C   28      21      0       0 21
+# a1c2  145 T   49      0       0       0 0
+# a1c2  146 A   49      0       0       0 0
+# a1c2  147 A   36      13      0       0 13
+# a1c2  148 G   49      0       0       0 0
+# a1c2  149 A   36      13      0       0 13
+# a1c2  150 C   43      1       5       0 6
+end also different
+
+# a1c3  0 A     50      0       0       0 0
+# a1c3  1 G     45      0       5       0 5
+# a1c3  2 G     24      21      5       0 26
+# a1c3  3 A     50      0       0       0 0
+# a1c3  4 A     50      0       0       0 0
+# a1c3  5 A     45      0       5       0 5
+# a1c3  6 G     50      0       0       0 0
+# a1c3  7 T     50      0       0       0 0
+# a1c3  8 T     50      0       0       0 0
+# a1c3  9 C     50      0       0       0 0
+# a1c3  10 T    50      0       0       0 0
+# a1c3  11 G    28      22      0       0 22
+# a1c3  12 C    50      0       0       0 0
+# a1c3  13 A    50      0       0       0 0
+# a1c3  14 A    50      0       0       0 0
+# a1c3  15 G    50      0       0       0 0
+# a1c3  16 T    50      0       0       0 0
+# a1c3  17 C    49      1       0       0 1
+# a1c3  18 C    50      0       0       0 0
+# a1c3  19 C    50      0       0       0 0
+# a1c3  20 T    28      22      0       0 22
+# a1c3  21 A    50      0       0       0 0
+# a1c3  22 C    50      0       0       0 0
+# a1c3  23 C    50      0       0       0 0
+# a1c3  24 C    50      0       0       0 0
+# a1c3  25 G    28      22      0       0 22
+start is rare var
+
+
+# c1    69 C    28      28      0       0 28
+# c1    70 A    56      0       0       0 0
+# c1    71 C    51      5       0       0 5
+# c1    72 G    56      0       0       0 0
+# c1    73 G    56      0       0       0 0
+# c1    74 G    56      0       0       0 0
+# c1    75 A    56      0       0       0 0
+# c1    76 G    50      6       0       0 6
+# c1    77 G    14      42      0       0 42
+# c1    78 C    51      5       0       0 5
+# c1    79 C    51      5       0       0 5
+# c1    80 G    15      41      0       0 41
+rare version in graph
+
+# c1    131 C   31      25      0       0 25
+# c1    132 A   56      0       0       0 0
+# c1    133 A   56      0       0       0 0
+# c1    134 T   56      0       0       0 0
+# c1    135 G   55      1       0       1 2
+# c1    136 C   56      0       0       23 23
+Common ins
+
+# c1    249 A   38      18      0       0 18
+# c1    250 A   56      0       0       0 0
+# c1    251 C   52      4       0       0 4
+# c1    252 A   56      0       0       0 0
+# c1    253 G   55      1       0       0 1
+# c1    254 C   28      28      0       0 28
+# c1    255 C   54      2       0       0 2
+# c1    256 A   30      26      0       0 26
+# c1    257 A   40      16      0       0 16
+
+# c1    299 C   53      3       0       0 3
+# c1    300 T   30      26      0       0 26
+# c1    301 T   56      0       0       0 0
+# c1    302 C   56      0       0       0 0
+# c1    303 C   55      1       0       0 1
+# c1    304 T   55      1       0       0 1
+# c1    305 T   52      4       0       0 4
+# c1    306 G   56      0       0       0 0
+# c1    307 A   55      0       1       0 1
+# c1    308 A   56      0       0       0 0
+# c1    309 T   54      1       1       0 2
+# c1    310 G   29      0       27      0 27
+# c1    311 T   56      0       0       0 0
+# c1    312 G   56      0       0       0 0
+# c1    313 G   56      0       0       0 0
+# c1    314 T   56      0       0       0 0
+# c1    315 C   56      0       0       0 0
+# c1    316 A   56      0       0       0 0
+# c1    317 T   53      3       0       0 3
+# c1    318 C   56      0       0       0 0
+# c1    319 T   56      0       0       0 0
+# c1    320 G   38      18      0       0 18
+# c1    321 C   55      1       0       0 1
+
+# c1    371 C   55      1       0       0 1
+# c1    372 C   30      26      0       0 26
+# c1    373 T   55      1       0       0 1
+
+# c1    394 T   51      5       0       0 5
+# c1    395 T   30      26      0       0 26
+# c1    396 C   52      4       0       0 4
+# c1    397 C   55      0       0       0 0
+# c1    398 C   55      0       0       0 0
+# c1    399 C   55      0       0       0 0
+# c1    400 T   55      0       0       0 0
+# c1    401 C   55      0       0       0 0
+# c1    402 T   54      1       0       0 1
+# c1    403 T   54      1       0       0 1
+# c1    404 T   29      26      0       0 26
+# c1    405 C   53      2       0       0 2
+# c1    406 A   50      5       0       0 5
+
+# c1    457 T   51      4       0       0 4
+# c1    458 C   27      28      0       14 42
+# c1    459 C   55      0       0       0 0
+# c1    460 C   51      4       0       0 4
+# c1    461 T   55      0       0       0 0
+# c1    462 G   52      3       0       0 3
+# c1    463 A   54      1       0       0 1
+# c1    464 G   55      0       0       0 0
+# c1    465 C   51      4       0       0 4
+# c1    466 C   55      0       0       0 0
+# c1    467 A   55      0       0       0 0
+# c1    468 A   52      3       0       0 3
+# c1    469 T   55      0       0       0 0
+# c1    470 A   53      2       0       0 2
+# c1    471 G   51      4       0       0 4
+# c1    472 T   50      5       0       0 5
+# c1    473 C   28      27      0       0 27
+# c1    474 C   55      0       0       0 0
+
+# c10   73 C    39      0       0       0 0
+# c10   74 T    8       31      0       0 31
+# c10   75 T    39      0       0       0 0
+# c10   76 T    36      3       0       0 3
+# c10   77 G    39      0       0       0 0
+# c10   78 T    39      0       0       0 0
+# c10   79 T    39      0       0       0 0
+# c10   80 G    39      0       0       0 0
+# c10   81 G    8       31      0       0 31
+# c10   82 T    39      0       0       0 0
+# c10   83 G    34      5       0       0 5
+# c10   84 A    8       31      0       0 31
+# c10   85 T    8       31      0       0 31
+# c10   86 G    8       31      0       0 31
+# c10   87 G    39      0       0       0 0
+# c10   88 A    39      0       0       0 0
+# c10   89 G    39      0       0       0 0
+# c10   90 T    8       31      0       0 31
+# c10   91 C    39      0       0       0 0
+rare var in graph
+
+# c10   141 T   39      0       0       0 0
+# c10   142 A   8       31      0       0 31
+# c10   143 A   39      0       0       0 0
+# c10   144 A   39      0       0       0 0
+# c10   145 T   39      0       0       0 0
+# c10   146 A   39      0       0       0 0
+# c10   147 T   39      0       0       0 0
+# c10   148 C   39      0       0       0 0
+# c10   149 A   39      0       0       0 0
+# c10   150 G   39      0       0       0 0
+# c10   151 A   39      0       0       0 0
+# c10   152 A   39      0       0       0 0
+# c10   153 G   39      0       0       0 0
+# c10   154 A   39      0       0       0 0
+# c10   155 A   39      0       0       0 0
+# c10   156 A   39      0       0       0 0
+# c10   157 C   38      1       0       0 1
+# c10   158 C   39      0       0       0 0
+# c10   159 C   39      0       0       0 0
+# c10   160 C   39      0       0       0 0
+# c10   161 T   39      0       0       0 0
+# c10   162 G   39      0       0       0 0
+# c10   163 T   39      0       0       0 0
+# c10   164 T   39      0       0       0 0
+# c10   165 G   39      0       0       30 30
+# c10   166 T   39      0       0       0 0
+
+# c10   187 A   39      0       0       0 0
+# c10   188 C   39      0       0       31 31
+# c10   189 A   39      0       0       0 0
+# c10   190 T   39      0       0       0 0
+# c10   191 T   39      0       0       0 0
+# c10   192 G   39      0       0       0 0
+# c10   193 C   8       31      0       0 31
+# c10   194 C   39      0       0       0 0
+# c10   195 A   39      0       0       0 0
+# c10   196 C   39      0       0       0 0
+# c10   197 A   8       0       31      0 31
+# c10   198 C   36      3       0       0 3
+# c10   199 G   34      5       0       0 5
+# c10   200 T   39      0       0       0 0
+# c10   201 T   39      0       0       0 0
+# c10   202 C   39      0       0       0 0
+# c10   203 C   39      0       0       0 0
+# c10   204 C   36      3       0       0 3
+# c10   205 C   34      5       0       0 5
+# c10   206 A   39      0       0       0 0
+# c10   207 A   39      0       0       0 0
+# c10   208 G   8       31      0       0 31
+# c10   209 G   36      3       0       0 3
+# c10   210 G   8       31      0       0 31
+# c10   211 T   39      0       0       0 0
+
+# c10   239 C   39      0       0       0 0
+# c10   240 T   10      29      0       0 29
+# c10   241 A   36      3       0       0 3
+# c10   242 T   39      0       0       0 0
+# c10   243 C   39      0       0       0 0
+# c10   244 C   39      0       0       0 0
+# c10   245 C   39      0       0       0 0
+# c10   246 T   39      0       0       0 0
+# c10   247 G   39      0       0       0 0
+# c10   248 G   39      0       0       0 0
+# c10   249 G   39      0       0       0 0
+# c10   250 T   39      0       0       0 0
+# c10   251 A   39      0       0       0 0
+# c10   252 A   39      0       0       0 0
+# c10   253 G   39      0       0       0 0
+# c10   254 A   10      29      0       0 29
+# c10   255 A   39      0       0       0 0
+# c10   256 C   36      3       0       0 3
+# c10   257 C   37      2       0       0 2
+# c10   258 A   39      0       0       0 0
+# c10   259 C   36      3       0       0 3
+# c10   260 G   8       31      0       0 31
+# c10   261 G   39      0       0       0 0
+# c10   262 G   39      0       0       0 0
+# c10   263 T   39      0       0       0 0
+# c10   264 G   39      0       0       0 0
+# c10   265 T   39      0       0       0 0
+# c10   266 G   39      0       0       0 0
+# c10   267 A   39      0       0       0 0
+# c10   268 A   39      0       0       0 0
+# c10   269 C   10      29      0       0 29
+# c10   270 C   39      0       0       0 0
+
+# c10   291 A   39      0       0       0 0
+# c10   292 A   39      0       0       0 0
+# c10   293 T   8       31      0       0 31
+# c10   294 A   39      0       0       0 0
+# c10   295 A   39      0       0       0 0
+# c10   296 G   39      0       0       0 0
+# c10   297 C   36      3       0       0 3
+# c10   298 C   8       31      0       0 31
+# c10   299 A   39      0       0       0 0
+# c10   300 C   39      0       0       0 0
+
+# c10   360 T   39      0       0       0 0
+# c10   361 A   39      0       0       0 0
+# c10   362 C   8       31      0       0 31
+# c10   363 A   8       31      0       0 31
+# c10   364 T   39      0       0       0 0
+# c10   365 A   39      0       0       0 0
+# c10   366 A   39      0       0       0 0
+# c10   367 A   39      0       0       0 0
+# c10   368 A   39      0       0       0 0
+# c10   369 C   8       31      0       0 31
+# c10   370 G   39      0       0       0 0
+# c10   371 A   36      3       0       0 3
+# c10   372 A   39      0       0       0 0
+# c10   373 T   8       31      0       0 31
+# c10   374 G   39      0       0       0 0
+# c10   375 T   39      0       0       0 0
+
+# c10   389 G   39      0       0       0 0
+# c10   390 G   8       31      0       0 31
+# c10   391 T   39      0       0       0 0
+# c10   392 C   39      0       0       0 0
+# c10   393 C   39      0       0       0 0
+# c10   394 C   39      0       0       0 0
+# c10   395 A   39      0       0       0 0
+# c10   396 G   8       31      0       0 31
+# c10   397 T   39      0       0       0 0
+
+# c10   439 G   39      0       0       0 0
+# c10   440 A   39      0       0       0 0
+# c10   441 T   39      0       0       0 0
+# c10   442 T   39      0       0       0 0
+# c10   443 T   34      5       0       0 5
+# c10   444 A   39      0       0       0 0
+# c10   445 C   8       31      0       0 31
+# c10   446 T   39      0       0       0 0
+# c10   447 G   39      0       0       0 0
+# c10   448 A   39      0       0       0 0
+
+# c10   463 C   38      0       1       0 1
+# c10   464 A   37      0       2       0 2
+# c10   465 A   37      0       2       0 2
+# c10   466 C   37      0       2       36 38
+# c10   467 A   36      0       3       0 3
+# c10   468 G   36      0       3       0 3
+# c10   469 T   36      0       3       0 3
+# c10   470 C   37      0       2       0 2
+# c10   471 A   38      0       1       0 1
+# c10   472 C   36      0       3       0 3
+# c10   473 A   38      0       1       36 37
+# c10   474 A   39      0       0       0 0
+# c10   475 T   39      0       0       5 5
+# c10   476 C   39      0       0       0 0
+# c10   477 A   39      0       0       0 0
+# c10   478 T   39      0       0       0 0
+# c10   479 A   39      0       0       0 0
+# c10   480 T   39      0       0       0 0
+# c10   481 A   8       31      0       0 31
+# c10   482 A   39      0       0       0 0
+# c10   483 T   39      0       0       0 0
+# c10   484 T   39      0       0       0 0
+# c10   485 T   39      0       0       0 0
+# c10   486 A   39      0       0       0 0
+# c10   487 T   39      0       0       0 0
+# c10   488 C   35      4       0       0 4
+# c10   489 T   8       31      0       0 31
+# c10   490 T   36      3       0       0 3
+# c10   491 T   39      0       0       0 0
+# c10   492 C   39      0       0       0 0
+
+# c10   501 T   39      0       0       0 0
+# c10   502 T   39      0       0       0 0
+# c10   503 C   8       31      0       0 31
+# c10   504 T   39      0       0       0 0
+# c10   505 T   39      0       0       0 0
+# c10   506 T   39      0       0       0 0
+# c10   507 C   39      0       0       0 0
+# c10   508 T   39      0       0       0 0
+# c10   509 T   39      0       0       0 0
+# c10   510 A   39      0       0       0 0
+
+# c10   548 T   39      0       0       0 0
+# c10   549 G   39      0       0       0 0
+# c10   550 A   39      0       0       0 0
+# c10   551 A   15      24      0       0 24
+# c10   552 T   39      0       0       0 0
+# c10   553 C   39      0       0       0 0
+
+# c10   573 T   39      0       0       0 0
+# c10   574 C   39      0       0       0 0
+# c10   575 C   39      0       0       0 0
+# c10   576 T   8       31      0       0 31
+# c10   577 G   39      0       0       0 0
+# c10   578 T   39      0       0       0 0
+# c10   579 T   39      0       0       0 0
+# c10   580 T   8       31      0       0 31
+# c10   581 A   39      0       0       0 0
+# c10   582 A   39      0       0       0 0
+# c10   583 T   39      0       0       0 0
+
+# c10   601 T   39      0       0       0 0
+# c10   602 A   8       31      0       0 31
+# c10   603 T   39      0       0       0 0
+# c10   604 T   37      2       0       0 2
+# c10   605 T   39      0       0       0 0
+# c10   606 C   39      0       0       0 0
+# c10   607 A   39      0       0       0 0
+# c10   608 G   39      0       0       0 0
+# c10   609 T   39      0       0       0 0
+# c10   610 C   39      0       0       0 0
+# c10   611 T   39      0       0       0 0
+# c10   612 C   39      0       0       0 0
+# c10   613 C   39      0       0       0 0
+# c10   614 C   39      0       0       0 0
+# c10   615 A   39      0       0       0 0
+# c10   616 T   8       31      0       0 31
+# c10   617 T   39      0       0       0 0
+# c10   618 C   39      0       0       0 0
+
+# c10   660 A   39      0       0       0 0
+# c10   661 G   39      0       0       0 0
+# c10   662 G   39      0       0       0 0
+# c10   663 T   8       31      0       0 31
+# c10   664 A   39      0       0       0 0
+# c10   665 G   39      0       0       0 0
+# c10   666 A   39      0       0       0 0
+# c10   667 A   39      0       0       0 0
+# c10   668 C   39      0       0       0 0
+# c10   669 T   39      0       0       0 0
+# c10   670 C   39      0       0       0 0
+# c10   671 T   39      0       0       0 0
+# c10   672 C   8       31      0       0 31
+# c10   673 A   8       31      0       0 31
+# c10   674 G   39      0       0       0 0
+# c10   675 T   39      0       0       0 0
+
+# c10   693 T   39      0       0       0 0
+# c10   694 C   39      0       0       0 0
+# c10   695 A   13      26      0       0 26
+# c10   696 G   37      2       0       0 2
+# c10   697 A   39      0       0       0 0
+# c10   698 A   39      0       0       0 0
+# c10   699 A   39      0       0       0 0
+# c10   700 G   39      0       0       0 0
+# c10   701 G   39      0       0       0 0
+# c10   702 G   8       31      0       0 31
+# c10   703 A   8       31      0       0 31
+# c10   704 G   39      0       0       0 0
+
+# c10   734 C   39      0       0       0 0
+# c10   735 A   39      0       0       0 0
+# c10   736 G   8       31      0       0 31
+# c10   737 T   39      0       0       0 0
+# c10   738 T   39      0       0       0 0
+# c10   739 T   39      0       0       0 0
+# c10   740 C   39      0       0       31 31
+# c10   741 A   39      0       0       0 0
+# c10   742 A   39      0       0       0 0
+# c10   743 A   39      0       0       0 0
+# c10   744 A   36      3       0       0 3
+# c10   745 C   8       0       31      0 31
+# c10   746 A   39      0       0       0 0
+# c10   747 T   39      0       0       0 0
+# c10   748 G   39      0       0       0 0
+# c10   749 A   39      0       0       0 0
+# c10   750 G   39      0       0       0 0
+# c10   751 C   39      0       0       0 0
+# c10   752 A   39      0       0       0 0
+# c10   753 G   39      0       0       0 0
+# c10   754 G   8       31      0       0 31
+# c10   755 T   39      0       0       0 0
+# c10   756 C   39      0       0       0 0
+# c10   757 C   38      1       0       0 1
+# c10   758 C   39      0       0       0 0
+
+# c11   19 G    39      0       0       0 0
+# c11   20 C    35      4       0       0 4
+# c11   21 G    13      26      0       0 26
+# c11   22 G    39      0       0       0 0
+# c11   23 A    39      0       0       0 0
+
+# c11   75 C    39      0       0       0 0
+# c11   76 A    39      0       0       0 0
+# c11   77 A    39      0       0       0 0
+# c11   78 A    8       31      0       0 31
+# c11   79 C    34      5       0       0 5
+# c11   80 A    39      0       0       0 0
+# c11   81 A    39      0       0       0 0
+# c11   82 T    38      1       0       0 1
+
+# c11   119 C   39      0       0       0 0
+# c11   120 T   39      0       0       0 0
+# c11   121 T   39      0       0       0 0
+# c11   122 A   39      0       0       8 8
+# c11   123 G   8       31      0       8 39
+# c11   124 A   39      0       0       0 0
+# c11   125 G   39      0       0       0 0
+
+# c11   161 C   39      0       0       0 0
+# c11   162 A   39      0       0       0 0
+# c11   163 C   39      0       0       0 0
+# c11   164 T   8       31      0       0 31
+# c11   165 G   39      0       0       0 0
+# c11   166 T   39      0       0       0 0
+# c11   167 G   39      0       0       0 0
+
+# c11   193 A   39      0       0       0 0
+# c11   194 T   39      0       0       0 0
+# c11   195 G   39      0       0       0 0
+# c11   196 C   8       31      0       0 31
+# c11   197 T   8       31      0       0 31
+# c11   198 C   39      0       0       0 0
+# c11   199 A   39      0       0       0 0
+
+# c12   40 G    53      5       0       0 5
+# c12   41 T    58      0       0       0 0
+# c12   42 T    58      0       0       0 0
+# c12   43 G    27      31      0       0 31
+# c12   44 T    58      0       0       0 0
+# c12   45 G    58      0       0       0 0
+# c12   46 T    58      0       0       0 0
+# c12   47 A    58      0       0       0 0
+
+# c12   72 A    58      0       0       0 0
+# c12   73 C    58      0       0       0 0
+# c12   74 C    27      31      0       0 31
+# c12   75 T    58      0       0       0 0
+# c12   76 G    58      0       0       0 0
+
+# c13   7 C     58      0       0       0 0
+# c13   8 C     53      5       0       0 5
+# c13   9 T     58      0       0       0 0
+# c13   10 C    27      31      0       0 31
+# c13   11 A    58      0       0       0 0
+# c13   12 G    58      0       0       0 0
+
+# c13   54 T    58      0       0       0 0
+# c13   55 G    58      0       0       0 0
+# c13   56 C    27      31      0       0 31
+# c13   57 C    58      0       0       0 0
+# c13   58 C    55      0       3       0 3
+# c13   59 A    58      0       0       0 0
+# c13   60 T    39      5       14      0 19
+# c13   61 G    27      31      0       0 31
+# c13   62 A    58      0       0       0 0
+# c13   63 T    50      8       0       0 8
+# c13   64 A    58      0       0       0 0
+
+#node c14 gfa{c14}{=} 0
+# c14   0 T     27      31      0       0 31
+# c14   1 A     58      0       0       0 0
+# c14   2 G     44      14      0       0 14
+# c14   3 A     58      0       0       0 0
+
+# c15   16 T    58      0       0       0 0
+# c15   17 C    58      0       0       0 0
+# c15   18 T    27      31      0       0 31
+# c15   19 C    58      0       0       0 0
+# c15   20 C    58      0       0       0 0
+# c15   21 T    27      31      0       0 31
+# c15   22 A    58      0       0       0 0
+
+# c15   48 T    58      0       0       0 0
+# c15   49 C    44      14      0       0 14
+# c15   50 T    58      0       0       0 0
+# c15   51 C    58      0       0       0 0
+# c15   52 T    58      0       0       0 0
+# c15   53 G    32      26      0       0 26
+# c15   54 T    45      13      0       0 13
+# c15   55 C    53      5       0       0 5
+
+# c15   271 C   58      0       0       0 0
+# c15   272 A   58      0       0       0 0
+# c15   273 C   58      0       0       0 0
+# c15   274 A   30      28      0       0 28
+# c15   275 G   32      26      0       0 26
+# c15   276 G   58      0       0       0 0
+# c15   277 A   58      0       0       0 0
+# c15   278 T   58      0       0       0 0
+
+# c15   326 C   58      0       0       0 0
+# c15   327 A   58      0       0       0 0
+# c15   328 T   58      0       0       0 0
+# c15   329 A   58      0       0       0 0
+# c15   330 A   27      0       31      0 31
+# c15   331 T   27      0       31      0 31
+# c15   332 A   27      0       31      0 31
+# c15   333 A   27      0       31      0 31
+# c15   334 A   23      4       31      0 35
+# c15   335 C   58      0       0       0 0
+# c15   336 A   27      0       31      0 31
+# c15   337 C   27      0       31      0 31
+# c15   338 T   58      0       0       0 0
+# c15   339 C   58      0       0       0 0
+common del
+
+# c15   354 T   58      0       0       0 0
+# c15   355 T   53      5       0       0 5
+# c15   356 T   27      31      0       0 31
+# c15   357 A   58      0       0       0 0
+# c15   358 A   58      0       0       0 0
+# c15   359 C   58      0       0       0 0
+
+# c15   377 C   58      0       0       0 0
+# c15   378 T   58      0       0       0 0
+# c15   379 G   32      26      0       0 26
+# c15   380 C   58      0       0       0 0
+# c15   381 A   58      0       0       0 0
+
+# c15   421 T   58      0       0       0 0
+# c15   422 A   58      0       0       0 0
+# c15   423 G   27      31      0       0 31
+# c15   424 T   55      3       0       0 3
+# c15   425 A   58      0       0       0 0
+
+# c15   444 A   58      0       0       0 0
+# c15   445 A   28      30      0       0 30
+# c15   446 T   58      0       0       0 0
+# c15   447 T   58      0       0       0 0
+
+# c15   463 A   58      0       0       0 0
+# c15   464 T   58      0       0       0 0
+# c15   465 T   29      29      0       0 29
+# c15   466 A   58      0       0       0 0
+# c15   467 G   58      0       0       0 0
+
+# c15   532 G   58      0       0       0 0
+# c15   533 T   58      0       0       0 0
+# c15   534 A   27      31      0       0 31
+# c15   535 T   27      31      0       0 31
+# c15   536 A   58      0       0       0 0
+# c15   537 C   27      31      0       0 31
+# c15   538 C   58      0       0       0 0
+# c15   539 T   58      0       0       0 0
+
+# c15   625 C   53      5       0       0 5
+# c15   626 T   58      0       0       0 0
+# c15   627 A   27      31      0       0 31
+# c15   628 A   58      0       0       0 0
+# c15   629 A   58      0       0       0 0
+
+# c15   694 A   58      0       0       0 0
+# c15   695 A   58      0       0       0 0
+# c15   696 C   34      24      0       0 24
+# c15   697 A   58      0       0       0 0
+# c15   698 C   58      0       0       0 0
+
+# c15   708 A   58      0       0       0 0
+# c15   709 A   27      31      0       0 31
+# c15   710 C   58      0       0       0 0
+
+# c15   742 C   58      0       0       0 0
+# c15   743 A   58      0       0       0 0
+# c15   744 T   32      26      0       0 26
+# c15   745 A   58      0       0       0 0
+# c15   746 G   58      0       0       0 0
+
+
+# c17   0 A     58      0       0       0 0
+# c17   1 C     58      0       0       0 0
+# c17   2 C     39      19      0       0 19
+# c17   3 T     58      0       0       0 0
+# c17   4 T     58      0       0       0 0
+# c17   5 T     28      30      0       0 30
+# c17   6 T     58      0       0       0 0
+# c17   7 G     58      0       0       0 0
+
+# c17   18 C    53      5       0       0 5
+# c17   19 A    58      0       0       0 0
+# c17   20 G    8       50      0       0 50
+# c17   21 C    58      0       0       0 0
+# c17   22 A    58      0       0       0 0
+
+# c17   36 C    58      0       0       0 0
+# c17   37 T    50      8       0       0 8
+# c17   38 C    33      25      0       0 25
+# c17   39 T    58      0       0       0 0
+# c17   40 C    58      0       0       0 0
+# c17   41 T    44      14      0       0 14
+# c17   42 A    42      5       11      0 16
+# c17   43 G    55      0       3       0 3
+# c17   44 T    58      0       0       0 0
+
+# c17   91 C    57      0       1       0 1
+# c17   92 T    58      0       0       0 0
+# c17   93 C    27      31      0       0 31
+# c17   94 C    58      0       0       0 0
+# c17   95 T    58      0       0       0 0
+
+# c17   123 T   58      0       0       0 0
+# c17   124 T   58      0       0       0 0
+# c17   125 A   27      31      0       0 31
+# c17   126 G   58      0       0       0 0
+# c17   127 A   39      19      0       0 19
+# c17   128 T   53      5       0       0 5
+# c17   129 C   34      24      0       0 24
+# c17   130 C   58      0       0       0 0
+# c17   131 A   58      0       0       0 0
+# c17   132 G   58      0       0       0 0
+# c17   133 C   53      5       0       0 5
+# c17   134 T   47      11      0       0 11
+# c17   135 G   58      0       0       0 0
+# c17   136 G   58      0       0       0 0
+
+# c17   151 A   58      0       0       0 0
+# c17   152 G   58      0       0       0 0
+# c17   153 C   8       50      0       0 50
+# c17   154 A   27      31      0       0 31
+# c17   155 C   58      0       0       0 0
+# c17   156 A   58      0       0       0 0
+# c17   157 G   39      19      0       0 19
+# c17   158 T   58      0       0       0 0
+# c17   159 C   58      0       0       0 0
+
+# c17   200 T   58      0       0       0 0
+# c17   201 C   53      5       0       0 5
+# c17   202 G   27      31      0       0 31
+# c17   203 T   58      0       0       0 0
+# c17   204 C   58      0       0       0 0
+
+# c17   227 A   58      0       0       0 0
+# c17   228 T   53      5       0       0 5
+# c17   229 G   27      31      0       0 31
+# c17   230 G   57      1       0       0 1
+# c17   231 T   58      0       0       0 0
+
+# c17   259 C   58      0       0       0 0
+# c17   260 A   58      0       0       0 0
+# c17   261 T   27      31      0       0 31
+# c17   262 T   58      0       0       0 0
+
+# c17   327 C   58      0       0       0 0
+# c17   328 C   58      0       0       0 0
+# c17   329 T   31      27      0       0 27
+# c17   330 C   58      0       0       0 0
+# c17   331 T   58      0       0       0 0
+
+# c17   373 A   58      0       0       0 0
+# c17   374 A   58      0       0       0 0
+# c17   375 T   22      36      0       0 36
+# c17   376 A   58      0       0       0 0
+# c17   377 A   58      0       0       0 0
+# c17   378 T   58      0       0       0 0
+
+# c17   411 C   58      0       0       0 0
+# c17   412 T   58      0       0       0 0
+# c17   413 T   58      0       0       0 0
+# c17   414 G   53      0       5       0 5
+# c17   415 G   22      31      5       0 36
+# c17   416 T   55      3       0       0 3
+# c17   417 T   58      0       0       0 0
+# c17   418 T   53      0       5       0 5
+
+# c17   565 A   58      0       0       0 0
+# c17   566 C   58      0       0       0 0
+# c17   567 C   24      34      0       0 34
+# c17   568 T   58      0       0       0 0
+# c17   569 G   58      0       0       0 0
+
+# c17   688 A   58      0       0       0 0
+# c17   689 T   58      0       0       0 0
+# c17   690 C   27      31      0       0 31
+# c17   691 A   58      0       0       0 0
+# c17   692 T   58      0       0       0 0
+# c17   693 T   58      0       0       0 0
+
+# c17   815 A   58      0       0       0 0
+# c17   816 G   58      0       0       0 0
+# c17   817 C   31      27      0       0 27
+# c17   818 A   58      0       0       0 0
+# c17   819 A   58      0       0       0 0
+
+# c17   901 C   58      0       0       0 0
+# c17   902 C   27      31      0       0 31
+# c17   903 C   58      0       0       0 0
+# c17   904 T   58      0       0       0 0
+# c17   905 G   58      0       0       0 0
+# c17   906 G   44      14      0       0 14
+# c17   907 A   53      5       0       0 5
+
+# c17   960 C   58      0       0       0 0
+# c17   961 A   58      0       0       0 0
+# c17   962 A   27      31      0       0 31
+# c17   963 T   58      0       0       0 0
+# c17   964 C   58      0       0       0 0
+
+# c19   47 G    58      0       0       0 0
+# c19   48 A    58      0       0       0 0
+# c19   49 C    44      14      0       0 14
+# c19   50 T    58      0       0       0 0
+# c19   51 T    58      0       0       0 0
+# c19   52 C    27      31      0       0 31
+# c19   53 C    58      0       0       0 0
+
+# c19   92 T    58      0       0       0 0
+# c19   93 T    58      0       0       0 0
+# c19   94 G    27      31      0       0 31
+# c19   95 C    58      0       0       0 0
+# c19   96 T    58      0       0       0 0
+
+... only most severe from here on ...
+
+# c19   170 T   58      0       0       0 0
+# c19   171 C   17      41      0       0 41
+# c19   172 G   55      3       0       0 3
+
+# c19   397 T   53      5       0       0 5
+# c19   398 A   58      0       0       0 0
+# c19   399 C   27      31      0       0 31
+# c19   400 T   58      0       0       0 0
+# c19   401 C   22      36      0       0 36
+# c19   402 T   58      0       0       0 0
+
+# c19   474 C   58      0       0       0 0
+# c19   475 C   57      1       0       0 1
+# c19   476 C   27      31      0       0 31
+# c19   477 A   58      0       0       0 0
+# c19   478 G   58      0       0       0 0
+# c19   479 T   58      0       0       0 0
+# c19   480 A   58      0       0       0 0
+# c19   481 A   27      31      0       0 31
+# c19   482 A   58      0       0       0 0
+# c19   483 G   27      31      0       0 31
+# c19   484 A   58      0       0       0 0
+# c19   485 G   58      0       0       0 0
+# c19   486 T   58      0       0       0 0
+# c19   487 A   58      0       0       0 0
+# c19   488 G   58      0       0       0 0
+# c19   489 C   58      0       0       0 0
+# c19   490 T   58      0       0       0 0
+# c19   491 G   58      0       0       0 0
+# c19   492 C   58      0       0       0 0
+# c19   493 T   58      0       0       0 0
+# c19   494 G   27      31      0       0 31
+# c19   495 A   58      0       0       0 0
+# c19   496 G   55      3       0       0 3
+
+# c19   647 A   58      0       0       0 0
+# c19   648 C   58      0       0       0 0
+# c19   649 T   58      0       0       0 0
+# c19   650 T   58      0       0       0 0
+# c19   651 C   58      0       0       0 0
+# c19   652 T   58      0       0       0 0
+# c19   653 T   58      0       0       0 0
+# c19   654 C   8       19      31      0 50
+# c19   655 T   58      0       0       0 0
+# c19   656 T   27      0       31      0 31
+# c19   657 T   27      0       31      0 31
+# c19   658 C   58      0       0       0 0
+
+
+# c2    863 C   58      0       0       0 0 
+# c2    864 A   58      0       0       0 0 
+# c2    865 G   8       50      0       0 50 *
+# c2    866 G   44      14      0       0 14 
+# c2    867 A   53      5       0       0 5 
+# c2    868 G   50      8       0       0 8 
+# c2    907 G   53      5       0       0 5 
+# c2    908 G   58      0       0       0 0 
+# c2    909 T   9       49      0       0 49 *
+# c2    910 T   58      0       0       0 0 
+# c2    911 A   58      0       0       0 0 
+
+See file "__"
+
+=============================================================================
+
+kmer alignment.
+
+1. Align
+
+f=DRB-train.fa;/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g mafft+cons.gfa -f $f -x vg -a mafft.gaf
+
+2. Construct the nodeseq file (node names + node seq + aligned seq to nodes)
+from the GraphAligner output + FASTA and GFA.
+
+./gaf2gfa.pl mafft.gaf $f mafft+cons.gfa > $f.nodeseq
+
+3. Kmer analysis, indexing the nodeseq to assign kmers to nodes, and
+then indexing an individual sequence to count kmer hits per node.
+
+./kmer2node $f.nodeseq s1.fa|grep Node|sort
+
+
+The GAF file for s1 claims:
+
+>c1>a1c0>a1c1>a1i1>a1c2>a1i2>a1c3>c2>i2>c3>c4>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCT>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>rCA>c5>i5>c6>c6a1>c7>c12>c13>c14>i14>c15>r16>r16>r16>c17>cnv>cnvstr>cnvstr>cnvstr>cnvstr>cnvstr>cnvstr>cnvstr>cnvstr>cnvstr>cnvstr>c19>c20
+
+Our output looks like:
+...
+Node        i19	len     44	exp     44	hit      0	ratio 0.00
+Node        r16	len     16	exp     16	hit     45	ratio 2.81
+Node        rCA	len      2	exp      2	hit     40	ratio 19.91
+Node        rCT	len      2	exp      2	hit     43	ratio 21.40
+Node       a0c0	len     44	exp     33	hit      0	ratio 0.00
+Node       a0c1	len    279	exp    279	hit      0	ratio 0.00
+...
+
+Marrying the two together I see
+
+node	 GAF freq  12-kmer ratio	15-mer
+>c1	 1   	   0.98	   		0.97
+>a1c0	 1	   1.00			0.94
+>a1c1	 1	   1.01			1.00
+>a1i1	 1	   0.94			0.87 l
+>a1c2	 1	   0.89			0.88 l
+>a1i2	 1	   1.00			0.99
+>a1c3	 1	   1.00			0.95
+>c2	 1	   1.00			1.00
+>i2	 1	   1.00			0.85 l
+>c3	 1	   1.01			1.01
+>c4	 1	   1.00			1.00
+>rCT	 21	   23.45 high		20.90
+>rCA	 21	   20.45		18.91
+>c5	 1	   1.00			0.99
+>i5	 1	   0.98			0.93
+>c6	 1	   0.97			0.96
+>c6a1	 1	   0.97			0.50 LOW
+>c7	 1	   1.00			0.99
+>c12	 1	   0.98			0.96
+>c13	 1 	   0.99			0.94
+>c14	 1	   1.07			0.74 low
+>i14	 1	   1.05			0.77 low
+>c15	 1	   1.00			1.00
+>r16	 3	   2.92			2.87
+>c17	 1	   1.00			1.00
+>cnv	 1	   0.88			0.86
+>cnvstr	 10	   16.88 HIGH (dup)	13.51 high
+>c19	 1	   1.00	      		1.00
+>c20	 1	   1.00			1.00
+
+Plus a minor false hit:
+>c10i0	 0	   0.02
+
+-----------------------------------------------------------------------------
+
+Renamed nodes to be sortable in their standard left to right
+alignment.
+
+f=DRB-train.fa;/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g mafft+cons.gfa -f $f -x vg -a mafft.gaf; ./gaf2gfa.pl mafft.gaf $f mafft+cons.gfa > $f.nodeseq;./kmer2node $f.nodeseq s1.fa|grep Node | sort -k2 -b|awk '$NF > 0'
+
+Node      aa-c1	len    603	exp  603.0  601.3	hit    587	ratio 0.98
+Node    ae-a1c0	len     49	exp   49.0   49.0	hit     49	ratio 1.00
+Node    ag-a1c1	len    211	exp  211.0  200.1	hit    202	ratio 1.01
+...
+
+
+Bandage load mafft+cons.gfa --edgelen 15 --edgewidth 0.5 --iter 4 --singlearr 
+
+
+=============================================================================
+
+HLA-DRB1*14:54:01/rc vs kmer-index from aligning DRB-train.fa to mafft+cons.gfa
+
+     aa-c1	len    603	exp  603.0  601.3	hit    563	ratio 0.94  1
+   ae-a1c0	len     49	exp   49.0   49.0	hit     39	ratio 0.80  1
+   af-a1i0	len     10	exp   10.0   10.0	hit      8	ratio 0.80  1
+   ag-a1c1	len    211	exp  211.0  200.1	hit    199	ratio 0.99  1
+   ah-a1i1	len     47	exp   47.0   21.4	hit      5	ratio 0.23  0
+   ai-a1c2	len    151	exp  151.0  134.4	hit    124	ratio 0.92  1
+   ak-a1c3	len     65	exp   65.0   65.0	hit     53	ratio 0.82  1
+     ba-c2	len   1967	exp 1967.0 1929.8	hit   1881	ratio 0.97  1
+     ca-c3	len   1126	exp 1126.0 1097.4	hit   1055	ratio 0.96  1
+     da-c4	len    650	exp  650.0  643.0	hit    626	ratio 0.97  1
+    db-rCT	len      2	exp    2.0    1.8	hit     31	ratio 16.92 20
+    dc-rCA	len      2	exp    2.0    1.9	hit     50	ratio 25.56 26
+     ea-c5	len    371	exp  371.0  370.1	hit    327	ratio 0.88  1
+     eb-i5	len     56	exp   56.0   56.0	hit     32	ratio 0.57  1*
+     fa-c6	len    258	exp  258.0  257.8	hit    224	ratio 0.87  1
+   fb-c6a0	len      5	exp    5.0    3.1	hit      1	ratio 0.33  1*
+   fc-c6a1	len      6	exp    6.0    4.1	hit      2	ratio 0.49  0*
+     ga-c7	len    234	exp  234.0  230.0	hit    215	ratio 0.93  1
+     ha-c8	len    450	exp  450.0  441.4	hit    424	ratio 0.96  1
+     ia-c9	len    574	exp  574.0  569.3	hit    540	ratio 0.95  1
+    ja-c10	len    759	exp  759.0  752.7	hit    727	ratio 0.97  1
+  jb-c10i0	len     12	exp   12.0    0.5	hit      0	ratio 0.02  0
+    ka-c11	len    240	exp  240.0  235.8	hit    212	ratio 0.90  1
+    la-c12	len    109	exp  109.0  108.3	hit    109	ratio 1.01  1
+    ma-c13	len     71	exp   71.0   71.0	hit     71	ratio 1.00  1
+    na-c14	len     11	exp   11.0   10.3	hit     11	ratio 1.07  1
+    nb-i14	len     13	exp   13.0   12.3	hit     12	ratio 0.97  1
+    oa-c15	len    868	exp  868.0  862.7	hit    832	ratio 0.96  1
+    ob-r16	len     16	exp   16.0   15.4	hit     47	ratio 3.05  3
+    pa-c17	len   1008	exp 1008.0 1001.4	hit    974	ratio 0.97  1
+    pb-cnv	len    282	exp  282.0  194.2	hit    544	ratio 2.80  3
+ pc-cnvstr	len      4	exp    4.0    2.4	hit     61	ratio 25.74 26
+pd-cnvlink	len     53	exp   53.0   53.0	hit     53	ratio 1.00  1
+    qa-c19	len   1533	exp 1533.0 1481.5	hit   1385	ratio 0.93  1
+    ra-c20	len    886	exp  886.0  880.8	hit    883	ratio 1.00  1
+
+GraphAligner CNV complex is:
+ 1 cnv
+ 8 STR
+ 1 link
+ 1 cnv
+ 5 STR
+ 1 cnv
+13 STR
+
+We have 8+5+13 = 26 STR copies, but we cannot assign the numbers to the
+3 loops through the CNV.
+
+We under-represent i5, and and we have a much reduced c6a0 (should be
+1) and over present c6a0 (should be 0).  However the hit counts are 1
+and 2, demonstrating the problem with tiny nodes in the graph.
+
+Indexing based on hla-drb1.fasta alignments instead we see:
+Node      eb-i5	len     56	exp   56.0   56.0	hit     45	ratio 0.80
+Node    fb-c6a0	len      5	exp    5.0    1.2	hit      0	ratio 0.01
+Node    fd-c6a2	len     16	exp   16.0   16.0	hit      0	ratio 0.00
+
+That 's better on i5 and c6a2, but completely misses c6a0
+
+Indexing based on all.fa instead:
+Node      eb-i5	len     56	exp   56.0   56.0	hit     56	ratio 1.00
+Node    fb-c6a0	len      5	exp    5.0    1.0	hit      0	ratio 0.01
+Node    fc-c6a1	len      6	exp    6.0    2.0	hit      0	ratio 0.01
+
+Also no c6a0.
+
+GraphAligner is adamant we go through it.  Our graph has us going
+through one of the 3 choices there, but we go through none.  This
+implies the sequence is more divergent than the 3 options we had
+available at that position.
+
+Matching:
+ 21 009d7ddd GCTCCTTCTCTC fa-c6
+ 21 0075f774 CTCCTTCTCTCA fa-c6
+ 21 00d7ddd3 TCCTTCTCTCAT fa-c6
+ 21 005f774d CCTTCTCTCATC fa-c6
+ 21 007ddd35 CTTCTCTCATCC fa-c6
+ 21 00f774d5 TTCTCTCATCCC fa-c6
+ -1 00ddd354 TCTCTCATCCCA ?
+ -1 00774d51 CTCTCATCCCAC ?
+ -1 00dd3544 TCTCATCCCACA ?
+ -1 0074d511 CTCATCCCACAC ?
+ -1 00d35446 TCATCCCACACG ?
+ 25 004d511b CATCCCACACGT ga-c7
+ 25 0035446f ATCCCACACGTT ga-c7
+ 25 00d511bf TCCCACACGTTT ga-c7
+ 25 005446fc CCCACACGTTTA ga-c7
+ 25 00511bf1 CCACACGTTTAC ga-c7
+ 25 00446fc5 CACACGTTTACC ga-c7
+ 25 0011bf16 ACACGTTTACCG ga-c7
+
+c6 is ...CCTTCTCTCATCCC$
+our seq  CCTTCTCTCATCCC$
+
+         ---pre-----         I
+c7 is    TTTACCGGTTCCTTAAACAG-ACCCACCGCGTTCATCCTGTGAACACTTCCTTAGTGATGA
+our seq        GGTTCCTTAAACAGCACCCACCGC
+
+c6a0     acatg
+c6a2     tttaccctttaaaggc
+c6a1     acacgc
+our seq  ACACGTTTACCGGTTC
+              XIIIIIIIIII
+
+We obviously need c6a3 too
+
+Ie:
+                                  c6 c6a0             c7
+Graph                 CCTTCTCTCATCCC ACATG            CTTAAACAG-ACCCACCGC
+HLA-DRB1*14:54:01/rc  CCTTCTCTCATCCC ACACGTTTACCGGTTC CTTAAACAGCACCCACCGC
+                                        X IIIIIIIIIII          I
+
+Problematic GRCh38 c6a* nodes:
+h11-h14
+
+HLA-DRB1*11:01:01/rc
+HLA-DRB1*12:17/rc
+HLA-DRB1*13:02:01/rc
+HLA-DRB1*14:54:01/rc>h14.fa
+
+Maybes:
+HLA-DRB1*03:01:01:01/rc
+HLA-DRB1*08:03:02/rc
+HLA-DRB1*10:01:01/rc
+HLA-DRB1*16:02:01/rc
+
+
+c6a0     acatg;            only expect 1 hit due to dups.  Error prone!
+c6a2     tttaccctttaaaggc
+c6a1     acacgc
+
+c6a0 needs k=14 or 15 to be reliable
+Use gapped kmer?
+
+-----------------------------------------------------------------------------
+10/6/2024
+
+S	fb-c6a0	acatg
+S	fc-c6a1	acacgc
+S	fd-c6a2	tttaccctttaaaggc
+S	fe-c6a3	ACACG
+
+          acatg
+          acacgc
+tttaccctttaaaggc
+          ACACG
+           x x x
+          ACACGC
+So maybe  ACACGC or ACACG to c7 and tttacccttt to c6a0
+c7 is long enough to absorb alignment SNPs too
+
+Plus c21 tail after previous graph for the GRCh38 HLA* alignments.
+Most have 500+ bps, but some fewer:
+
+h16   60
+h1   110
+h10  111
+h8   353
+h11  495 (common)
+
+
+h3/10/11/13/14 are similar to each other
+
+s3/4 closely match h7/9
+
+h15 no match?
+
+
+TODO:
+s6/10/h4 major sub-seq at pos 610: CHECK is this a0c0?
+i2 - could be 3 shorter and then 3bp ins in c3?
+c8 has sub-seq, including 12bp gaccctcttaat del.
+Matters?
+
+Check s6 vs ib-c9i0?
+
+
+
+Investigate h10.fa vs hla+train.fa
+
+GraphAligner
+      1 aa-c1
+      1 ae-a1c0
+      1 af-a1i0
+      1 ag-a1c1
+      1 ai-a1c2
+      1 ak-a1c3
+      1 ba-c2
+      1 bb-i2
+      1 ca-c3
+      1 da-c4
+      9 db-rCT
+     18 dc-rCA
+      1 ea-c5
+      1 eb-i5
+      1 fa-c6
+      1 fd-c6a2
+      1 ga-c7
+      1 ha-c8
+      1 ia-c9
+      1 ja-c10
+      1 ka-c11
+      1 la-c12
+      1 ma-c13
+      1 na-c14
+      1 nb-i14
+      1 oa-c15
+      3 ob-r16
+      1 pa-c17
+      1 pb-cnv
+      8 pc-cnvstr
+      1 pd-cnvlink
+      1 pb-cnv
+      5 pc-cnvstr
+      1 pb-cnv
+     13 pc-cnvstr
+      1 qa-c19
+      1 ra-c20
+      1 sa-c21
+
+Node      aa-c1	len    603	exp  588.8	hit    446	ratio 0.76 1
+Node    ae-a1c0	len     49	exp   48.3	hit     22	ratio 0.46 1
+Node    af-a1i0	len     10	exp    8.0	hit      9	ratio 1.12 1
+Node    ag-a1c1	len    211	exp  195.0	hit     69	ratio 0.35 1
+Node    ai-a1c2	len    151	exp  132.0	hit     39	ratio 0.30 1
+Node    aj-a1i2	len    319	exp  104.3	hit      5	ratio 0.05 0
+Node    ak-a1c3	len     65	exp   63.6	hit     34	ratio 0.53 1
+Node      ba-c2	len   1967	exp 1903.2	hit   1436	ratio 0.75 1
+Node      bb-i2	len     20	exp   20.0	hit      3	ratio 0.15 1
+Node      ca-c3	len   1126	exp 1069.6	hit    722	ratio 0.68 1
+Node      da-c4	len    650	exp  629.4	hit    415	ratio 0.66 1
+Node     db-rCT	len      2	exp    1.9	hit     14	ratio 7.52 9
+Node     dc-rCA	len      2	exp    2.0	hit     32	ratio 16.31 18
+Node      ea-c5	len    371	exp  367.0	hit    264	ratio 0.72 1
+Node      eb-i5	len     56	exp   55.0	hit     55	ratio 1.00 1
+Node      fa-c6	len    258	exp  249.9	hit    160	ratio 0.64 1
+Node    fd-c6a2	len     10	exp   10.0	hit      2	ratio 0.20 1
+Node      ga-c7	len    240	exp  236.8	hit    225	ratio 0.95 1
+Node      ha-c8	len    450	exp  434.8	hit    408	ratio 0.94 1
+Node      ia-c9	len    574	exp  560.8	hit    527	ratio 0.94 1
+Node    ib-c9i0	len    307	exp  184.1	hit      1	ratio 0.01 0
+Node     ja-c10	len    759	exp  744.2	hit    692	ratio 0.93 1
+Node   jb-c10i0	len     12	exp    1.6	hit      0	ratio 0.01 0
+Node     ka-c11	len    240	exp  231.3	hit    208	ratio 0.90 1
+Node     la-c12	len    109	exp  105.9	hit    105	ratio 0.99 1
+Node     ma-c13	len     71	exp   68.3	hit     67	ratio 0.98 1
+Node     na-c14	len     11	exp    8.5	hit      7	ratio 0.82 1
+Node     nb-i14	len     13	exp   12.2	hit     11	ratio 0.90 1
+Node     oa-c15	len    868	exp  848.5	hit    819	ratio 0.97 1
+Node     ob-r16	len     16	exp   15.7	hit     47	ratio 3.00 3
+Node     pa-c17	len   1008	exp  987.5	hit    962	ratio 0.97 1
+Node     pb-cnv	len    282	exp  191.1	hit    514	ratio 2.69 3
+Node  pc-cnvstr	len      4	exp    2.1	hit     56	ratio 26.94 26
+Node pd-cnvlink	len     53	exp   52.0	hit     51	ratio 0.98 1
+Node     qa-c19	len   1533	exp 1446.9	hit   1367	ratio 0.94 1
+Node     ra-c20	len    886	exp  873.1	hit    875	ratio 1.00 1
+Node     sa-c21	len    513	exp  144.6	hit    112	ratio 0.77 1
+a1c0 a1c1 a1c2 and a1c3 are all low
+
+We need additional entries maybe?
+
+h12,15,16 match the s1,9,11 group, but h10 is a blend of several
+
+Solved (ish): fix up on SNPs if not -1 match (dup). So it's percentage of
+bases covered by a unique kmer than kmers counted.
+
+						Fix KMER-1   all    none
+Node      aa-c1	exp  588.8	hit    564	ratio 0.96   0.96   0.76 
+Node    ae-a1c0	exp   48.3	hit     28	ratio 0.58   0.58   0.46 
+Node    af-a1i0	exp    8.0	hit      9	ratio 1.12   1.12   1.12 
+Node    ag-a1c1	exp  195.0	hit    195	ratio 1.00   0.85   0.35 
+Node    ai-a1c2	exp  132.0	hit    102	ratio 0.77   0.72   0.30 
+Node    aj-a1i2	exp  104.3	hit      5	ratio 0.05   0.05   0.05 
+Node    ak-a1c3	exp   63.6	hit     59	ratio 0.93   0.93   0.53 
+Node      ba-c2	exp 1903.2	hit   1817	ratio 0.95   0.95   0.75 
+Node      bb-i2	exp   20.0	hit     19	ratio 0.95   0.75   0.15 
+Node      ca-c3	exp 1069.6	hit    938	ratio 0.88   0.88   0.68 
+Node      da-c4	exp  629.4	hit    592	ratio 0.94   0.92   0.66 
+Node     db-rCT	exp    1.9	hit     14	ratio 7.52   7.52   7.52 
+Node     dc-rCA	exp    2.0	hit     32	ratio 16.31  16.31  16.31
+Node      ea-c5	exp  367.0	hit    364	ratio 0.99   0.97   0.72 
+Node      eb-i5	exp   55.0	hit     55	ratio 1.00   1.00   1.00 
+Node      fa-c6	exp  249.9	hit    235	ratio 0.94   0.94   0.64 
+Node    fd-c6a2	exp   10.0	hit      2	ratio 0.20   0.20   0.20 
+Node      ga-c7	exp  236.8	hit    237	ratio 1.00   1.00   0.95 
+Node      ha-c8	exp  434.8	hit    438	ratio 1.01   1.01   0.94 
+Node      ia-c9	exp  560.8	hit    545	ratio 0.97   0.97   0.94 
+Node    ib-c9i0	exp  184.1	hit      1	ratio 0.01   0.01   0.01 
+Node     ja-c10	exp  744.2	hit    739	ratio 0.99   0.99   0.93 
+Node   jb-c10i0	exp    1.6	hit      0	ratio 0.01   0.01   0.01 
+Node     ka-c11	exp  231.3	hit    234	ratio 1.01   1.01   0.90 
+Node     la-c12	exp  105.9	hit    105	ratio 0.99   0.99   0.99 
+Node     ma-c13	exp   68.3	hit     67	ratio 0.98   0.98   0.98 
+Node     na-c14	exp    8.5	hit      7	ratio 0.82   0.82   0.82 
+Node     nb-i14	exp   12.2	hit     11	ratio 0.90   0.90   0.90 
+Node     oa-c15	exp  848.5	hit    841	ratio 0.99   0.99   0.97 
+Node     ob-r16	exp   15.7	hit     47	ratio 3.00   3.00   3.00 
+Node     pa-c17	exp  987.5	hit    963	ratio 0.98   0.98   0.97 
+Node     pb-cnv	exp  191.1	hit    548	ratio 2.87   2.87   2.69 
+Node  pc-cnvstr	exp    2.1	hit     56	ratio 26.94  26.94  26.94
+Node pd-cnvlink	exp   52.0	hit     51	ratio 0.98   0.98   0.98 
+Node     qa-c19	exp 1446.9	hit   1431	ratio 0.99   0.99   0.94 
+Node     ra-c20	exp  873.1	hit    876	ratio 1.00   1.00   1.00 
+Node     sa-c21	exp  144.6	hit    112	ratio 0.77   0.77   0.77 
+
+
+=============================================================================
+
+a1c2:  aaacctct cctaagac                                         aggaaagttctgc
+           "  t tgtaggcc   <gggcgcgg... a1i2 ins ... cctcttgta>  agaaaagttctcc
+                xx  x x                                            x        x
+
+     |----------------------------ishort------------------|
+ACCTCTCCTAAGAC*****************************************AGGAAAGTTCT
+      xx  x x                                            x
+ACCTCTTGTAGGCCGGGCGCGGTGGCTAAAAAAAAACAAAAAAAAACCTCTTGTAAGAAAAGTTCT
+     |----------------------------ilong-------------------|
+
+So a1i2 becomes a1i2a and a1i2b and no skip?
+
+PROBLEM: ishort has multiple variants and just hard to align as rep.
+Drop it maybe as count is unnecessary.
+DONE: add CCTAAGAC to c2 as this is the one without the ins.  The
+other seq (TTGTAGGCC) can may be covered by the kmer representing the
+first base of a1i2.
+
+-----
+
+a1c2 has a small rep
+gcattgattggtccattttacagagtgtggattgctccattttacagagtgctgattagtccattttacaaa-catctatctagccacagagtgccaattggtgtgtttttacagagcactgattggtgcatttagaaacctct
+                                       ttttacagagCAct          ttttacagagca-ct                             ttttacagagcact
+
+Some seqs (h8) have an additional                             TTTTTACAGAGGCACTC
+
+Not easy to model as differing linker seqs.  It's also dup in c1 and
+c2 anyway, so ignore!
+
+-----
+
+a0:  No variation in a0 observed?
+
+GGAAAGGAAATCTGTTTCTTTCTTTCTTTTTTTTGTTTTTTTGAGATGGGGTCTCACTCTGTCACCTAGGCTGGAGTGCAGTGGCCCAATCTCGGCTCACTGCAACCTCTGCCTCCCGGGTTCCAGCGATTCTCCTGCCTTGGCCTCCTGAGTAGCTGGGATTACAGGCGCACACCACCACGCCCGACTGATTTTTTTTTGTATTTTTAGTAGAGACGGGGTTTCACCACGTTGGTCAGGCTGGTCTCGAACTCCTGACCTCATGATTCGCCCGCCTCGGCCTCCC
+
+
+DONE
+
+
+-----
+
+bb-i2 is:
+
+--c2--                    
+TGCCTT********************AAGAGTTTGATTC
+TGCCTTTTACTGGTTGATCCTGGAAGAGTTTTTTGATTC
+      ----old bbi2--------======c3=====
+      ----new bbi2-------------
+                    bbi3  -----
+                               ==c3====
+
+Short new bb-i3 worth it? (AAGAG)
+???
+
+IGNORE: Probably so short it'll just create problems.
+
+
+=====
+
+
+c5 variation:
+     =====x   x  xxx x  xxx x xx  x======
+h8   GAAATAACACTCACCCGTAGAGTACTCCAAGAAACG d5a
+h1   GAAATGACATTCAAACTTAAGCTGCCACAAGAAACG d5b
+s7   GAAATGACACTCAGACGTAGAGTACTCCAAGAAACG d5c
+s1   GAAATGACACTCCCTCTTAGGCTGCCACAGGAAACG d5d
+s4   GAAATGACACTTATACTTACCCTGCCACAGGAAACG d5e
+s6   GAAATGACACTCATGTTTAACCTGCTCCAAGAAACG d5f
+
+Split into 6 alternatives for that segment
+
+
+ea-{c5 -> d5[a-f] -> e5} -> fa-c6
+
+----------
+
+c5 i5 c6
+CCTGAAAGACAC TGACAGTGACGCCGCCATCCGGGGCTCCCTGGGTGGGGTGCGGGCACTGGGAACCT TAACCGGCCCCCGCCGCAA
+
+Old c6 start:    TAACCGGCCCCACCCGCAACGCCCACCACCCGCAGCCCAGGGGCTCAT
+without ins:	 TATCTGGCCCCACCCGCAACCCCGACAACACGCAGCCCAGGGGCTCAT
+		   x x               x     x xx
+
+It's ok, but we aligned it poorly in gap5.
+	     
+--------------------
+
+c7 (c8..c11) c12
+
+         x    x     x   x             xxx                        x
+TCAGTTAAAA*AAACTTGTTTC              CACAACTCATCTGATAAGGGTAAGTGGTCGAA
+TCAGTTAAAAGAAATTTGTTCCCAAAACTCATTTGGCAAATCTCATCTGATAAGGGTAAGTGGTCAAA
+---------c8-----------=====c8i1=====---------c9---------------------
+
+c8i1 correct
+
+c9 end before c9i0 variable:
+      x  x      x                   xxxxxxxxx   x  x  x xx  x x       x
+s7 CTAATTGTTTATAATGAAACAAGCAAAAATAAAAG-------ACTAAACTGTGTGGTGAGTGTATAACAGATG
+s4 CTAGTTTTTTATAGTGAAACAAGCAAAAATAAACCATAAAGAACTGAATTGGGCAGTGACTGTATAAAAGATG
+s6 CTAGTTTTTTATAATGAAACAAGCAAAAATAAACCATAAAGAACTGAATTGGGCAGTAAGTGTATAAAAGATG
+
+   ===4==4======7===================444444444===7==7==7=77==7=7=======4=====
+
+c9i0 correct
+
+Big variance in c10, split by whether c9i0 is present.
+Could replicate first seq?  (But some non-unique kmers then)
+First 93 bp with 15 diffs (16% divergence).
+
+TTTTTCAGAAAGAGCACAGTGTGAACCAATGCTTCCAGCCTCAGCACTATTGACATTTTG
+ x                          x    xxx
+
+GACGAGATAAATCTTGGTTGGTGATGGAGTCTA
+   x      x  x x    x  xxx   x  x
+
+Or a small bubble (but that's also dup again)?
+
+26bp match + 27bp match, so 57% covered by kmer already.  A bit more with
+gapped kmer?
+
+Check s6, s10, h4 vs node c10
+Looks good!
+s6
+Node    ib-c9i0	len    307	exp  184.1	hit    180	ratio 0.98
+Node     ja-c10	len    759	exp  744.2	hit    731	ratio 0.98
+Node   jb-c10i0	len     12	exp    1.6	hit      1	ratio 0.64 <<
+Node     ka-c11	len    240	exp  231.3	hit    245	ratio 1.06
+
+c9 c9i10 c10 stats:
+
+    c9   c9i10 c10  r10
+s7  0.98    -  1.00 1.00
+s4  1.00 1.03  1.00 1.00
+s6  1.01 0.97  0.98 2.00
+
+Good enough!
+
+-----
+
+c10:
+
+Early gap correctly align to:
+s4  CCTTACCAATCAGTCACCAAATCATATAATTTATCTTTCACA
+s6  CCTTACC-----------AAATCATATAATTTATCTCTCACA
+
+11bp, but not included in graph
+
+c10i0 looks iffy, but r10 solves it
+Improved alignment:
+s7 GAGCAGCTCCCCAGACTGTG***********-AGCAAGACCTGCAGAAA
+s4 GAGCAGGTCCCCAGACTGT-***********AAGCAAGACCTGCGGAAA
+s6 GAGCAGGTCCCCAGACTGTGAGTCAGACTGTGAGTAAGACCTGTGGAAA
+--------------------
+
+c10 		                   c10i0        c11
+CATACAGACAGTTTACAAAGCATGAGCAGGTCCC cagactgtgagt CAGACTGTGAGCAAGACCTGCGGAA
+CATACAGACACTTTACAAA*AATGAGCAGCTCCC              CAGACTGTGAGCAAGACCTGCAGAA
+                   x
+
+CATACAGACAGTTTACAAAGCATGAGCAGGTCCC cagactgtgagt CAGACTGTGAGCAAGACCTGCGGAA
+CATACAGACAGTTT*CAAAGCATGAGCAGGTCCC CAGACTGTGAGT CAGACTGTGAGTAAGACCTGTGGAA
+              x                                            x
+
+Problem is c10i0 kmers are dup bar one position.
+
+Aligning s6.fa:
+ 27 024c24ad GCATAAGCAGGTC ja-c10 8938
+ 27 013890b5 CATGAGCAAGTCC ja-c10 8939
+ 27 00e048d5 ATGAACAGATCCC ja-c10 8940
+ -1 03882855 TGAGAAGGACCCC ? 8941 dup
+ -1 0224ac54 GAGCAGGTACCCA ? 8942
+ -1 0090b452 AGCAAGTCACCAG ? 8943
+ -1 0248d448 GCAGATCCACAGA ? 8944
+ -1 01285421 CAGGACCCAAGAC ? 8945
+ -1 00ac5487 AGGTACCCAGACT ? 8946
+ -1 02b4501e GGTCACCAAACTG ? 8947
+ -1 02d4487b GTCCACAGACTGT ? 8948
+ -1 035420ee TCCCAAGAATGTG ? 8949
+ -1 015484b8 CCCCAGACAGTGA ? 8950
+ -1 01501ce2 CCCAAACTATGAG ? 8951 dup
+ 28 0148788b CCAGACTGAGAGT jb-c10i0 8952 unique
+ 29 0120ec2d CAGAATGTAAGTC ka-c11 8953
+ 29 0084b8b4 AGACAGTGAGTCA ka-c11 8954
+
+TGAGCAGGTCCCC is the last bp of c10 and also the first bases of c11 in
+some seqs.  Hence dup.  Is this just bad alignment?
+
+eg s4
+gfa              CAGACTGTGAGCAAGACCTGCGGAAATCTCC
+s4   TGAGCAGGTCCCCAGACTGTAAGCAAGACCTGCGGAAATCTCC (in $f.nodeseq)
+
+>aa-c1>ab-a0c0>ba-c2>bb-i2>ca-c3>da-c4>db-rCT>db-rCT>db-rCT>db-rCT>db-rCT>db-rCT>db-rCT>db-rCT>db-rCT>db-rCT>db-rCT>dc-rCA>dc-rCA>dc-rCA>dc-rCA>dc-rCA>dc-rCA>dc-rCA>dc-rCA>dc-rCA>dc-rCA>dc-rCA>ea-c5>eb-i5>fa-c6>fd-c6a2>ga-c7>ha-c8>hb-c8i1>ia-c9>ib-c9i0>ja-c10>ka-c11>la-c12>lb-i12>ma-c13>na-c14>oa-c15>ob-r16>pa-c17>pb-cnv>pc-cnvstr>pc-cnvstr>pc-cnvstr>pc-cnvstr>pc-cnvstr>pd-cnvlink>pb-cnv>pc-cnvstr>pc-cnvstr>pc-cnvstr>pc-cnvstr>pe-i18>qa-c19>ra-c20
+
+Note it aligns >c10>c11
+So has no c10i0 insertion
+
+
+c11                           CAGACTGTGAGCAAGACCTGCGGAAATCTCC
+s4    TGAGCAGGTCCC            CAGACTGTAAGCAAGACCTGCGGAAATCTCC (in $f.nodeseq)
+c10   TGAGCAGGTCCC             
+s6    TGAGCAGGTCCCCAGACTGTGAGTCAGACTGTGAGTAAGACCTGTGGAAATCTCT
+                  CAGACTGTGAGT		     c10i0
+			      CAGACTGTGAGT   c10i0/c11 start
+
+=> c10i0 should be a 1+ loop and shrink c11.          
+
+DONE: works
+
+s4:
+Node     ja-c10	len    760	exp  758.3	hit    759	ratio 1.00
+Node     jb-r10	len     12	exp   12.0	hit     12	ratio 1.00
+Node     ka-c11	len    228	exp  228.0	hit    238	ratio 1.04
+
+s6:
+Node     ja-c10	len    760	exp  758.3	hit    746	ratio 0.98
+Node     jb-r10	len     12	exp   12.0	hit     24	ratio 2.00
+Node     ka-c11	len    228	exp  228.0	hit    238	ratio 1.04
+
+--------------------
+
+c12 (i12) c13 (c14) (14) c15
+
+i12 only in s4 h7 h9
+Node     la-c12	len    109	exp  108.5	hit    109	ratio 1.00
+Node     lb-i12	len     10	exp   10.0	hit     10	ratio 1.00
+Node     ma-c13	len     71	exp   71.0	hit     71	ratio 1.00
+
+TODO: 10bp only.  Need to model it?  We have bigger indels elsewhere I
+think.
+
+i13 is where?  s6 and s10 only. 250bp so needed
+
+>c14>i14>c15 always co-locate, so merge c14/i14/c15 together?
+
+Although s04 lacks i14.  Does it really!?
+
+TODO: not quite, but maybe diff rearrangement?
+
+We have s1,2,5,6,7,8,9,10,11
+Missing s3,4
+
+   c12 i12 c13 i13 c15
+s1 1.0     1.0     1.0
+s3 1.0 1.0 1.0     1.0
+s4 1.0 1.0 1.0     1.0
+h7 1.0 1.0 1.0     1.0
+h9 1.0 1.0 0.9     1.0
+s7 1.0     1.0     1.0
+s6 1.0     0.9 1.0 1.0
+h4 1.0     0.9 1.0 1.0
+
+   c13      i13                     c14         c15
+   TAGACATA CTTTTTTTTT...GCACCCAGCC TAGAACTTTTA AAAATGAATGAAA
+s4 CAGACATA                         TAGAGCTTTT  AAAATGAATG...
+h9 AAAATGAATG...
+s7 TAGACATA            CAGAACTTTTAAAATGATAAATGC AAAATGAATG...
+
+   c13      ?          i13                 ?              c15
+   TAGACATA xAGAxCTTTT TTTTTTTTTTGAG...GCC AAAATGATAAATGC AAAATGAATGAAAG
+
+Add TA?A?CTTTT to c13.  Cull c14.  i13 still follows c13.
+
+c13 extended to end (CCAGCC)TAGAACTTTT
+c15 starts AAAATGATAAATGC(plus old c14)
+Or...      AAAATGATAAATGC is kept as i14 (but likely a rep)
+
+
+TAGAGCTTTT
+
+TACAACGTTT
+--------------------
+DONE
+s3 TTCTAGGGAAAGGAAATCTCTTTCTTTTCTTTCTTTCTTTCCTTCTTTCCTTCCTTCCTTCCTTCCTT
+a0c0     GGAAAGGAAATCTGTTTCTTTCTTTCTTTTTTTTGTTTTTTTGAGATGGGG...
+a1c0     TGTGTCCAGAGTTTGTTCCTTCCGGTGGGTTCGTGGTTTCGCTGACTTC
+
+4bp rep.  {TTCC|TTTC}*
+
+a0c0  GGAAAGGAAATCTGTTTCTTTCTTTCTTTTTTTTGTTTTTTTGAGATGGGG...
+                    TTTCTTTCTTTCTTTCTTTCTTTCTTTC 7x
+		       7x
+
+                    TTTCTTT-CTTTCTTTCTTTCTTTCTTTCTTTCTTTCTTTCTTTC 11x
+s3    GGAAAGGAAATCTCTTTCTTTTCTTTCTTTCTTTCCTTCTTTCCTTCCTTCCTTCCTTC
+
+      TTTC-TTTCTTTCTTTCTTTCTTTCTTTCTTTCTTTCTTTCTTTCTTTC-TTTCTTTCTTTC 15x
+s3    CTTCCTTCCTTCCTTCCTTCCTT-CTTTCTTCCTTCCCTCCCTCCCTCCCTTTCTTTCTTTC
+
+      TTTCTTTCTTTC- 3x
+s3    TTTTTTTTTTTTTGAGACGGAGTCTC
+
+a0c0 vs s3
+
+a0c0 GGAAAGGAAATCTG(TTTC x7)GAGATGGGGTCTCACTCTGTCACCTAGGCTGGAGTGCAGTGGCCCAAT
+s3   GGAAAGGAAATCTC(TTTCx29)GAGACGGAGTCTCATTCTGTTGCCTAGGCTGGAGTGCAGCGGTGCAAT
+                  x             x         x     xx                xx  xx
+
+a0c0 CTCGGCTCACTGCAACCTCTGCCTCCCGGGTTCCAGCGATTCTCCTGCCTTGGCCTCCTGAGTAGCTGG
+s3   CTCGGCTCACTGCAACCTCTGCCTCCCGGGTTCAAGCGATTCTCCTGCCTCAGTCTCCTGAGTAGCTGG
+                                      x                x  x         
+
+So TTTC or similar loop in a0c0 handles s3 OK
+a0c0 present in h4 h7 h9 s3 s4 s6 s10
+(h4,s6,s10 already in gap5 db)
+
+s3 has ~100bp extra, so needs big gap in s6 etc
+
+s3/4 vs s6/10 has reordering at ~4.6k-5.8k (padded) vs 13.8-15.1k
+padded.  A large piece of DNA has moved.
+
+
+Diff at   (find CCATTGCACTCCAGCCTGGGCAACA)
+13443 s3
+13510 s6
+
+Resync at (find TCAGAGTCTAATATGATGAGGCT)
+15869 s3
+15936 s6
+
+
+2.3kb pads
+
+div s6/s1 at 13500
+
+13475,13494 - 14797,13824  =  +1312 s6, +330 s1
+
+16180 AATAAAATTCAAATTTTTTACCGTGGACATCAGAGTCTAATATGATGAGGCTTCTGACTTCCTCTC
+
+-----------------------------------------------------------------------------
+
+
+=============================================================================
+
+TODO
+----
+
+c3: s1 / s4 / s6
+
+      x                       x   x    xx x     xxxxxx      x  xx
+s1: CATTGTCCATTACCTACCAAATACAATAGGGAATTCTTAGAGCAA*****TAATTATAATCGGCCAAT
+s6: CATTGTCCATTACCTACCAAATACAACAGGTAATTCGTAGAGCAGAGCAGTAATTACAACTGGCCAAT
+s4: CACTGTCCATTAC*********ACAACAGGTAATTGGTTGAGCAG*****TAATTATAACTGGCCAAT
+
+Could add a CTACCAAAT short ins?  Maybe an AGCAG too, but both quite short.
+
+
+-----
+c6                                         c6a2      c7
+                 x      x              x   xxxxxxxxxx x x x
+GAGCCTCCACCCCAAAGGCA**CTTTGCTCCTTCTCTCAACCCTTTACCATTTAAAGGCTTTA
+GAGCCTCCACCCCAAAGACA**CTCTGCTCCTTCTCTCATCCC**********ACATG*TTTA
+GAGCC******CCAAAGACA**CTCT*CTGCTCCTCTCATCCC**********ACACGCTTTA
+     xxxxxx         xx    x                xxxxxxxxxx
+
+c7 long enough to match OK with first few bases missing
+Similarly c6 and end
+
+-----
+c8 small ins:
+
+      x          x  x
+CCAGAGAAG------------AGTGAC
+CCAGAGGAGGACCCTCTGAAGAGTGAC
+CCAGAGAAGGACCCTCTTAATAGTGAC <--- node seq
+
+
+
+=============================================================================
+
+Evaluation:
+
+s=s4;f=hla+train.fa;/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g mafft+cons.gfa -f $f -x vg -a mafft.gaf >/dev/null; ./gaf2gfa.pl mafft.gaf $f mafft+cons.gfa > $f.nodeseq;./kmer2node $f.nodeseq $s.fa|grep Node | sort -k2 -b | perl -lane 'BEGIN{open(M,"mafft.gaf"); while (<M>) {chomp($_);@F=split(/\s+/,$_);if (/'$s'/) {foreach (split(">",$F[5])) {$h{$_}++}}}} if ($F[-1] > 0) {print "$_\t$h{$F[1]}"}'  
+
+1. Align training data with GraphAligner
+2. Run gaf2gfa on aligner output + fasta + GFA to produce "nodeseq" file
+3. Run kmer2node on query to map to nodeseq.
+4. Run GraphAligner on query data
+4. Report node hit rates from kmer2node and from GraphAligner file too
+
+
+Seq  Node      Got   Want
+h1   ah-a1i1   0.64  1
+h1   fd-c6a2   0.40  1
+h1   sa-c21    0.17  1   <--- short.  Need a way of handling end nodes
+h3   fd-c6a2   0.40  1
+h4   db-rCT   13.47  18
+h7   (non)
+h8   aa-c1     0.63  1
+h8   fd-c6a2   0.30  1 <<<
+h9   ab-a0e1   0.75  1
+h9   cb-i3     0.10  0 (54 hits too)
+h9   eb-i5     0.27  1
+h10  ae-a1c0   0.39  1
+h10  ag-a1c1   0.63  1
+h10  ai-a1c2   0.40  1 <<<
+h10  bb-i2     0.15  1 <<< BAD
+h10  fd-c6a2   0.30  1 <<<
+h10  sa-c21    0.22  1  (short)
+h11  fd-c6a2   0.30  1
+h12  ah-a1i1   0.64  1 <
+h12  fd-c6a2   0.30  1 <<<
+h13  fd-c6a2   0.30  1
+h14  ah-a1i1   0.21  0 (4 hits of 19)
+h14  fd-c6a2   0.30  1 <<<
+h15  (none)
+h16  pc-cnvstr 14.87 9   too many
+
+
+TO FIX (mostly h9 and h10):
+
+a1c0
+a1c1
+a1c2
+c6a2
+i2
+i3
+i5
+
+TODO: fix s3/4 vs s6/10 and reordering of a node
+
+The junction looks to be i3.
+
+c3  	     	            i3@5060 in g5
+AATGTCATAATAAAGGTCATCAAAGGG GAAAGTGACGTAAT,,,
+
+                i3@6260 c4
+...GTAAGAAAAAAAAAAACAAA GAAAGTGAGGTAAGTTGTGTCA
+
+So 1.2kb ins.
+
+g5 13500 is initial del.  ~1Kb of del followed by 1.2kb of
+translocated i3.  i18/c19?
+
+
+look for seq
+
+(+gaaagtgacgtaatttg in i3 start)
+CTTATACAAAAATTAATTCAAGATGGATTAAAGACTTAAATGT...
+CATGGCACATGTATACATATGTAACxAACCTGCACxTTGTGCACATGTACCCTAAA
+
+TTGTGCACATGTACCCTAAA ends i3 and i18
+
+CTTATACAAAAATTAATT very near start of i3, and 1109 into i18.
+(At 14940 and 5080)
+
+So we have
+
+            c3  i3 tied to t3     t3                 c4(i3, but 100%)  c4
+s10 CATCAATGGG (GAAAGTGACGTAATTTG=CTTATACA...ATAAAA) GAAAGTGAGGTAATTTG:TGTCAC
+
+Rep of GAAAGTGACGTAATTTG seq
+
+In i18
+(i18) GCTGAAACTGGATCCCTTCCTTACAC CTTATACAAAAATTAATT
+          (i3) GAAAGTGACGTAATTTG CTTATACAAAAATTAATT
+
+So no common seq there.
+
+Just drop GAAAGTGACGTAATTTG (17bp) as it is a repeated kmer anyway (c4 start)?
+
+
+=============================================================================
+
+Interesting combos:
+
+s4:   i18 and t1 adjacent to CNV loops
+s6:   t1 early between c3 and c4
+s7:   no t1
+
+s6, ordered by GraphAligner:
+		 len	   exp	 hit    ratio	GA cnt
+Node      aa-c1	 603	 603.0	 594	0.99	1
+Node    ab-a0c0	  14	  14.0	  14	1.00	1
+Node    ab-a0d1	   4	   3.9	  28	7.17	7
+Node    ab-a0e1	 288	 245.2	 249	1.02	1
+Node      ba-c2	1967	1938.6	1925	0.99	1
+Node      bb-i2	  20	  20.0	  20	1.00	1
+Node      ca-c3	1126	1102.0	1127	1.02	1
+Node      pf-t1	1240	1225.5	1180	0.96	1
+Node      da-c4	 650	 646.7	 641	0.99	1
+Node     db-rCT	   2	   1.8	  24	13.47	18
+Node     dc-rCA	   2	   2.0	  48	24.45	25
+Node      ea-c5	 287	 286.6	 287	1.00	1
+Node     ea-d5f	  25	  18.8	  17	0.91	1
+Node      ea-e5	  59	  59.0	  59	1.00	1
+Node      fa-c6	 258	 258.0	 258	1.00	1
+Node    fd-c6a2	  10	  10.0	  10	1.00	1
+Node      ga-c7	 240	 238.0	 237	1.00	1
+Node      ha-c8	 450	 444.5	 439	0.99	1
+Node    hb-c8i1	  14	  14.0	  14	1.00	1
+Node      ia-c9	 574	 572.2	 577	1.01	1
+Node    ib-c9i0	 307	 205.9	 199	0.97	1
+Node     ja-c10	 760	 759.3	 746	0.98	1
+Node     jb-r10	  12	  12.0	  24	2.00	2
+Node     ka-c11	 228	 228.0	 238	1.04	1
+Node     la-c12	 109	 108.5	 109	1.00	1
+Node     ma-c13	  81	  81.0	  75	0.93	1
+Node     mb-i13	 307	 254.0	 253	1.00	1
+Node     oa-c15	 882	 881.1	 880	1.00	1
+Node     ob-r16	  16	  15.9	  32	2.01	2
+Node     pa-c17	1008	1006.1	1009	1.00	1
+Node     pb-cnv	 282	 213.2	 398	1.87	2  (1 1)
+Node  pc-cnvstr	   4	   2.5	  34	13.30	11 (5 6)
+Node pd-cnvlink	  53	  53.0	  53	1.00	1  (1 0)
+Node     qa-c19	1533	1490.7	1494	1.00	1
+Node     qb-i19	  44	  44.0	  44	1.00	1
+Node     ra-c20	 886	 883.0	 885	1.00	1
+
+Ie 1 cnv -> 5 cnvstr -> 1 cnvlink ->
+   1 cnv -> 6 cnvstr   (0 cnvlink)
+
+s2,5,7,8 - no t1 insertion anywhere (plus h10,11,13,14 etc)
+		 len	   exp	 hit    ratio	GA cnt
+Node      aa-c1	 603	 603.0	 591	0.98	1
+Node    ae-a1c0	  49	  49.0	  49	1.00	1
+Node    af-a1i0	  10	   8.2	   8	0.97	1
+Node    ag-a1c1	 211	 201.0	 200	1.00	1
+Node    ai-a1c2	 143	 131.0	 138	1.05	1
+Node   aj-a1i2a	  11	   9.9	  11	1.11	1
+Node    ak-a1c3	  65	  64.8	  62	0.96	1
+Node      ba-c2	1967	1938.6	1938	1.00	1
+Node      ca-c3	1126	1102.0	1101	1.00	1
+Node      da-c4	 650	 646.7	 646	1.00	1
+Node     db-rCT	   2	   1.8	  29	16.28	16
+Node     dc-rCA	   2	   2.0	  34	17.32	18
+Node      ea-c5	 287	 286.6	 286	1.00	1
+Node     ea-d5c	  25	  14.2	  14	0.99	1
+Node      ea-e5	  59	  59.0	  59	1.00	1
+Node      eb-i5	  56	  56.0	  56	1.00	1
+Node      fa-c6	 258	 258.0	 259	1.00	1
+Node    fd-c6a2	  10	  10.0	   4	0.40	1
+Node      ga-c7	 240	 238.0	 233	0.98	1
+Node      ha-c8	 450	 444.5	 445	1.00	1
+Node      ia-c9	 574	 572.2	 558	0.98	1
+Node     ja-c10	 760	 759.3	 762	1.00	1
+Node     jb-r10	  12	  12.0	  12	1.00	1
+Node     ka-c11	 228	 228.0	 228	1.00	1
+Node     la-c12	 109	 108.5	 109	1.00	1
+Node     ma-c13	  81	  81.0	  81	1.00	1
+Node     oa-c15	 882	 881.1	 874	0.99	1
+Node     ob-r16	  16	  15.9	  48	3.02	3
+Node     pa-c17	1008	1006.1	1006	1.00	1
+Node     pb-cnv	 282	 213.2	 672	3.15	3   (1  1  1)
+Node  pc-cnvstr	   4	   2.5	  68	26.60	27  (8  4  15)
+Node pd-cnvlink	  53	  53.0	  53	1.00	1   (1  0  0)
+Node     qa-c19	1533	1490.7	1478	0.99	1
+Node     ra-c20	 886	 883.0	 885	1.00	1
+
+s3,s4,h4,h9 - i18 and t1 present in CNV area
+Node      aa-c1	 603	 603.0	 594	0.99	1
+Node    ab-a0c0	  14	  14.0	  14	1.00	1
+Node    ab-a0d1	   4	   3.9	 117	29.96	30
+Node    ab-a0e1	 288	 245.2	 236	0.96	1
+Node      ba-c2	1967	1938.6	1914	0.99	1
+Node      bb-i2	  20	  20.0	  20	1.00	1
+Node      ca-c3	1126	1102.0	1089	0.99	1
+Node      da-c4	 650	 646.7	 647	1.00	1
+Node     db-rCT	   2	   1.8	  20	11.23	11
+Node     dc-rCA	   2	   2.0	  22	11.21	11
+Node      ea-c5	 287	 286.6	 286	1.00	1
+Node     ea-d5e	  25	  20.3	  19	0.94	1
+Node      ea-e5	  59	  59.0	  59	1.00	1
+Node      eb-i5	  56	  56.0	  56	1.00	1
+Node      fa-c6	 258	 258.0	 259	1.00	1
+Node    fd-c6a2	  10	  10.0	  10	1.00	1
+Node      ga-c7	 240	 238.0	 239	1.00	1
+Node      ha-c8	 450	 444.5	 447	1.01	1
+Node    hb-c8i1	  14	  14.0	  14	1.00	1
+Node      ia-c9	 574	 572.2	 573	1.00	1
+Node    ib-c9i0	 307	 205.9	 213	1.03	1
+Node     ja-c10	 760	 759.3	 759	1.00	1
+Node     jb-r10	  12	  12.0	  12	1.00	1
+Node     ka-c11	 228	 228.0	 238	1.04	1
+Node     la-c12	 109	 108.5	 109	1.00	1
+Node     lb-i12	  10	  10.0	  10	1.00	1
+Node     ma-c13	  81	  81.0	  81	1.00	1
+Node     oa-c15	 882	 881.1	 864	0.98	1
+Node     ob-r16	  16	  15.9	  16	1.01	1
+Node     pa-c17	1008	1006.1	 998	0.99	1  
+Node     pb-cnv	 282	 213.2	 406	1.90	2  (1  1)
+Node  pc-cnvstr	   4	   2.5	  27	10.57	9  (5  4)
+Node pd-cnvlink	  53	  53.0	  53	1.00	1  (1  0)
+Node     pe-i18	1109	1108.3	1108	1.00	1
+Node      pf-t1	1240	1225.5	1219	0.99	1
+Node     qa-c19	1533	1490.7	1492	1.00	1
+Node     ra-c20	 886	 883.0	 866	0.98	1
+
+s1,9,11 h1,12,15,16 - fewer CNV copies
+Node      aa-c1	 603	 603.0	 588	0.98	1
+Node    ae-a1c0	  49	  49.0	  49	1.00	1
+Node    ag-a1c1	 211	 201.0	 204	1.02	1
+Node    ah-a1i1	  47	  18.8	  20	1.06	1
+Node    ai-a1c2	 143	 131.0	 115	0.88	1
+Node   aj-a1i2b	 330	 139.9	 140	1.00	1
+Node    ak-a1c3	  65	  64.8	  61	0.94	1
+Node      ba-c2	1967	1938.6	1940	1.00	1
+Node      bb-i2	  20	  20.0	  20	1.00	1
+Node      ca-c3	1126	1102.0	1114	1.01	1
+Node      da-c4	 650	 646.7	 644	1.00	1
+Node     db-rCT	   2	   1.8	  41	23.01	21
+Node     dc-rCA	   2	   2.0	  40	20.37	21
+Node      ea-c5	 287	 286.6	 287	1.00	1
+Node     ea-d5d	  25	  18.6	  18	0.97	1
+Node      ea-e5	  59	  59.0	  58	0.98	1
+Node      eb-i5	  56	  56.0	  55	0.98	1
+Node      fa-c6	 258	 258.0	 251	0.97	1
+Node    fd-c6a2	  10	  10.0	   3	0.30	1
+Node      ga-c7	 240	 238.0	 235	0.99	1
+Node     la-c12	 109	 108.5	 106	0.98	1
+Node     ma-c13	  81	  81.0	  80	0.99	1
+Node     oa-c15	 882	 881.1	 880	1.00	1
+Node     ob-r16	  16	  15.9	  47	2.95	3
+Node     pa-c17	1008	1006.1	1006	1.00	1
+Node     pb-cnv	 282	 213.2	 181	0.85	1  (1)
+Node  pc-cnvstr	   4	   2.5	  41	16.04	10 (10)
+Node     qa-c19	1533	1490.7	1488	1.00	1
+Node     ra-c20	 886	 883.0	 882	1.00	1
+
+JAGYVH010000080.1 - similar to above?
+Node      aa-c1	 603	 603.0	 589	0.98	1
+Node    ae-a1c0	  49	  49.0	  49	1.00	1
+Node    ag-a1c1	 211	 201.0	 202	1.01	1
+Node    ah-a1i1	  47	  18.8	  12	0.64	1
+Node    ai-a1c2	 143	 138.3	 123	0.89	1
+Node    ak-a1c3	  65	  64.8	  61	0.94	1
+Node      ba-c2	1967	1938.6	1932	1.00	1
+Node      bb-i2	  20	  20.0	  20	1.00	1
+Node      ca-c3	1126	1102.0	1100	1.00	1
+Node      da-c4	 650	 646.7	 643	0.99	1
+Node     db-rCT	   2	   1.8	  16	8.98	8
+Node     dc-rCA	   2	   2.0	  39	19.87	20
+Node      ea-c5	 287	 286.6	 287	1.00	1
+Node     ea-d5b	  25	  21.9	  21	0.96	1
+Node      ea-e5	  59	  59.0	  59	1.00	1
+Node      eb-i5	  56	  56.0	  56	1.00	1
+Node      fa-c6	 258	 258.0	 260	1.01	1
+Node    fd-c6a2	  10	  10.0	   4	0.40	1
+Node      ga-c7	 240	 238.0	 235	0.99	1
+Node     la-c12	 109	 108.5	 108	1.00	1
+Node     ma-c13	  81	  81.0	  81	1.00	1
+Node     oa-c15	 882	 881.1	 873	0.99	1
+Node     ob-r16	  16	  15.9	  47	2.95	3
+Node     pa-c17	1008	1006.1	 998	0.99	1
+Node     pb-cnv	 282	 213.2	 191	0.90	1  (1)
+Node  pc-cnvstr	   4	   2.5	  51	19.95	12 (12)
+Node     qa-c19	1533	1490.7	1487	1.00	1
+Node     ra-c20	 886	 883.0	 883	1.00	1
+Node     sa-c21	 513	 509.5	  12	0.02	1
+
+
+No hits on a1i2a.  Why?  Doesn't seem to match it (and dup)
+S       aj-a1i2a        CCTAAGACAGG
+
+  9 024fc805 GCATTTAGAAACC ai-a1c2 1047
+  9 013f2017 CATTTAGAAACCT ai-a1c2 1048
+  9 00fc805d ATTTAGAAACCTC ai-a1c2 1049
+  9 03f20177 TTTAGAAACCTCT ai-a1c2 1050
+ -1 03c805df TTAGAAACCTCTT ? 1051
+ -1 0320177e TAGAAACCTCTTG ? 1052
+ -1 00805dfb AGAAACCTCTTGT ? 1053
+ -1 020177ec GAAACCTCTTGTA ? 1054
+ -1 0005dfb0 AAACCTCTTGTAA ? 1055
+ -1 00177ec2 AACCTCTTGTAAG ? 1056
+ -1 005dfb08 ACCTCTTGTAAGA ? 1057
+ -1 0177ec20 CCTCTTGTAAGAA ? 1058
+ 12 01dfb080 CTCTTGTAAGAAA ak-a1c3 1059
+ 12 037ec200 TCTTGTAAGAAAA ak-a1c3 1060
+ 12 01fb0802 CTTGTAAGAAAAG ak-a1c3 1061
+ 12 03ec200b TTGTAAGAAAAGT ak-a1c3 1062
+
+CCTCTTGTAAGAA hits a1i2a and a1c3, but only because it's in nodeseq
+with a bad alignment.
+
+s1 could have same issue, but a1i2b has diff prefix.
+a1i2a is pointless I think.  Could merge in some bases to a1c2/a1c3
+
+
+
+
+
+Summary:
+perl -lane '$F[5]=join(">",reverse split("<",$F[5])) if ($F[5]=~/</); $F[5]=~s#(>[^>]*)(\1*)#(length($1)+length($2))/length($1)."\t".$1."\n"#ge;$F[5]=~s/>//g;print $F[5]' query.gaf
+1	aa-c1
+1	ab-a0c0
+30	ab-a0d1
+1	ab-a0e1
+...
+66 unique alignments of 87
+
+
+Squash numbers:
+perl -lane '$F[5]=join(">",reverse split("<",$F[5])) if ($F[5]=~/</); $F[5]=~s#([<>][^<>]*)(\1*)#$1." "#ge;$F[5]=~s/[<>]//g;print $F[5]' query.gaf
+aa-c1
+ab-a0c0
+ab-a0d1
+ab-a0e1
+
+That gives 18 unique alignments of 87
+Frequencies are 23,17,10,5,4,4,4,3,3,3,2,2,2,1,.....
+
+So lots of loop count differences (STRs), but not too many canonical
+alignments needed to train on.
+
+-----------------------------------------------------------------------------
+
+s=s7;f=hla+train.fa;/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g mafft+cons.gfa -f $s.fa -x vg -a query.gaf > /dev/null;/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g drb1+tangle1.gfa -f $f -x vg -a mafft.gaf >/dev/null; ./gaf2gfa.pl mafft.gaf $f drb1+tangle1.gfa > $f.nodeseq;./kmer2node $f.nodeseq $s.fa|grep Node | sort -k2 -b | perl -lane 'BEGIN{open(M,"query.gaf"); while (<M>) {chomp($_);@F=split(/\s+/,$_);if (/'$s'/) {foreach (split(">",$F[5])) {$h{$_}++}}}} if ($F[-1] > 0) {print "$_\t$h{$F[1]}"}';./kmer2node $f.nodeseq $s.fa|awk 'BEGIN {print "Node name,Freq"} /Node/ {printf("%s,%s\n",$2,$NF)}' > $s.csv
+
+Node     pa-c17	len   1008	exp 1006.3	hit    956	ratio 0.95	1
+Node     pb-cnv	len    282	exp  188.2	hit    249	ratio 1.32	3
+Node  pc-cnvstr	len      4	exp    3.4	hit     17	ratio 5.00	27
+Node pd-cnvlink	len     53	exp   53.0	hit     53	ratio 1.00	1
+Node     qa-c19	len   1533	exp 1504.3	hit   1381	ratio 0.92	1
+
+s7 cnv and cnvstr are far lower hit rate than expected.  We should
+have:
+
+      1 pa-c17
+      1 pb-cnv
+      8 pc-cnvstr
+      1 pd-cnvlink
+      1 pb-cnv
+      4 pc-cnvstr
+      1 pb-cnv
+     15 pc-cnvstr
+      1 qa-c19
+
+gaf2seq.pl confirms this path matches our sequence, albeit not very
+accurately.  kmer2seq shows many misses.
+
+This is a bug in gaf2gfa.pl (now fixed) where split alignments only
+got the last one recorded rather than the first (or ideally all).
+
+The hit rate is simply too low due to base calling differences.
+
+-----------------------------------------------------------------------------
+
+DONE: s7 splits  Why?
+
+Also looks like aj-a1i2b is missing.  Used in GraphAligner, but not
+our kmer2node.
+
+Similarly sa-c21.  Is it really in GraphAligner?  How many bp?
+
+Two paths:
+>aa-c1>ae-a1c0>af-a1i0>ag-a1c1>ai-a1c2  (0 1022)
+>aj-a1i2b>ak-a1c3...>ra-c20>sa-c21      (1006 13340)
+
+NB bases 1006-1022 are therefore reported twice.
+Hence maybe a1i2b is wrong?
+
+
+a1c2 and a1i2b are adjacent:
+
+L	ag-a1c1	+	ai-a1c2	+	0M
+L	ai-a1c2	+	aj-a1i2b	+	0M
+L	aj-a1i2b	+	ak-a1c3	+	0M
+
+We missed an a1c2 to a1c3 link.
+
+
+-----------------------------------------------------------------------------
+
+=============================================================================
+
+A scan of everything.
+
+for i in `cut -f 1 all.fa`;do echo === $i ===; samtools faidx hla+train.fa $i > _.fa;s=_;f=hla+train.fa;/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g drb1+tangle1.gfa -f $s.fa -x vg -a query.gaf > /dev/null;/nfs/sam_scratch/jkb/conda22/bin/GraphAligner -g drb1+tangle1.gfa -f $f -x vg -a mafft.gaf >/dev/null; ./gaf2gfa.pl mafft.gaf $f drb1+tangle1.gfa > $f.nodeseq;./kmer2node $f.nodeseq $s.fa|grep Node | sort -k2 -b | perl -lane 'BEGIN{open(M,"query.gaf"); while (<M>) {chomp($_);@F=split(/\s+/,$_);$F[5]=join(">",reverse split("<",$F[5]));if (/'$i'/) {foreach (split(">",$F[5])) {$h{$_}++}}}} if ($F[-1] > 0 || $h{$F[1]}) {print "$_\t$h{$F[1]}"}';done | tee all.out
+
+
+Common erroneously called nodes
+
+awk '/===/ {print} NF==10 && $10>=0.1' _.out
+
+Frequency
+      1 mb-i13		0.03
+      8 aj-a1i2b	all <= 0.04
+      2 ah-a1i1		0.17 0.17	len 47 (14:05:01 and 14:54:01)
+      1 ea-d5b		0.24		len 25 (see below)
+
+e.g.
+=== JAHEPA010000084.1 ===
+Node   aj-a1i2b len    330      exp  111.9      hit      2+0    ratio 0.01      0
+
+
+Missed nodes:
+sa-c21 52  (present in GRCh38 only)
+ea-d5f 1   (from HLA-DRB1*10:01:01)  FIXED
+
+d5f is misattributed to d5b:
+
+Node      ea-c5 87      exp  283.9      hit    282+36   ratio 0.99      1
+Node     ea-d5b 25      exp   20.7      hit      5+8    ratio 0.24      0 <
+Node     ea-d5f 25      exp   16.4      hit      0+0    ratio 0.00      1 <
+Node      ea-e5 59      exp   58.0      hit     58+0    ratio 0.98      1
+
+
+Problematic
+- very short nodes (rCT/CA, ab-a0d1, pc-cnvstr)
+- aa-c1 (HLA-DRB1*12:01:01) FIXED
+- fd-c6a2 (10bp, eg s1, s9, HLA-DRB1*08:03:02)  FIXED (missing c6>c7)
+(Below fixed with bigger training set on same graph)
+- ea-d5d (HLA-DRB1*09:21)
+- ea-d5f (HLA-DRB1*10:01:01)
+- aj-a1i2b (HLA-DRB1*15:02:01)
+
+
+HLA-DRB1*12:01:01
+Aligns from 14 to 13404 (end)
+
+Seq is simply truncated.  This is the same problem as sa-c21 but at
+the start instead.
+
+Maybe add in MAX(ratio, hits/(hits+possible)) too?
+So if we have 90% of the possible kmers hitting, event though it's
+only 20% of the expected, then this is just because we're short
+coverage.  Does that change things elsewhere though?
+
+Yes, but minimally.
+Minor changes to the (already poor) c6a2: 0.21 to 0.25 (want 1)
+Minor change to c13: 0.93 to 0.99 (want 1)
+
+Big change to c6a2 (0.2 to 1.0, want 1) on HLA-DRB1*15:01:01:01
+BIG BAD change to c9i0 (0.01 to 1.0, want 0) on JAGYVX010000013.1
+BIG BAD change to t1 (0 to 1.0, want 0) on JAHEPA010000084.1
+
+Maybe add a big offset so we need substantial chunks.
+Eg h/(h+p+10) so 1 hit doesn't turn into 1/(1.01) but 1/11
+
+Better would be to know the head and tail nodes.  Maybe by edge count
+in and out being zero? But we don't have that.  Or implicit knowledge
+of first vs last entry in nodeseq file?
+
+DONE
+
+--------------------
+
+s1 on fd-c6a2.
+fd-c6a2	len     10	exp   10.0	hit      3+0	ratio 0.30	1
+
+                 c6    c6a2    c7
+    ...TTCTCTCATCCC TTTACCATTT ACACGCTTTACCGG...
+s1  TGCTCCTCTCATCCC ********** ACACGCTTTACCGG...
+         x
+
+Looks like no c6a2 needed, but:
+
+GraphAligner -g drb1+tangle1.gfa -f s1.fa -x vg -a mafft.gaf
+=>  ...>fa-c6>fd-c6a2>ga-c7...
+
+Why?  Because again we managed to miss the c6->c7 graph edge.
+
+=============================================================================
+
+Sequence sets.
+
+1(3)  HLA-DRB1*07:01:01:01/rc
+      ONLY source of a0i0 (with HLA-DRB1*09:21/rc)
+      merge with HLA-DRB1*09:21/rc?
+      similar to s6/s10, few diffs in c2,c3@4900 (but long)
+      Joint only source of a0c0 with s6/s10 (so use this in pref)
+      s6/10/HLA*4 ONLY source of i3
+
+2(3)  HLA-DRB1*04:03:01/rc
+      Similar to s7
+
+3(4)  JAGYVX010000013.1, split JAHEPF010000055.1?
+      Divergence around 18kb (g5 coords), but many covered by other seqs.
+
+4(3)  JAGYVS010000035.1 (or HLA-DRB1*16:02:01/rc)
+      Very similar to set 8.  Both uniquely share a1i2, but vary
+      at approx 1830.
+      Some differences at ~7000 (c5) but long node.
+      Divergence within set 4 and 8 for CNV loop count.
+      JAGYVS010000035.1 is rarer here with fewer loops.
+
+8(10) HLA-DRB1*15:03:01:02/rc. Differs with set 4 in CNV area
+
+
+
+
+
+TODO:
+- match all vs all.
+- Label each node with sequences that match them
+- Uniquify to simplify it
+- find super-set sequences which can be representatives for as many
+  nodes as possible
+- Filter down to get smallest representative training set?
+
+
+Key nodes based on seqs aligning against them.
+
+Set 1: HLA-DRB1*04:03:01 s6 s10
+Set 2: HLA-DRB1*07:01:01:01 HLA-DRB1*07:01:01:02 s3 s4
+Set 3: HLA-DRB1*01:01:01 HLA-DRB1*01:02:01 JAGYVH010000080.1
+       JAGYVN010000027.1 JAHALZ010000032.1 JAHBCH010000013.1 JAHEOZ010000001.1
+Set 4: HLA-DRB1*08:03:02 HLA-DRB1*12:01:01 JAGYVJ010000064.1 JAGYVX010000013.1
+       JAHEOM010000153.1 JAHEPA010000084.1 JAHEPF010000055.1 JAHEPK010000074.1
+Set 5: HLA-DRB1*15:01:01:01 HLA-DRB1*15:01:01:02 HLA-DRB1*15:01:01:03
+       HLA-DRB1*15:01:01:04 HLA-DRB1*15:02:01    HLA-DRB1*15:03:01:01
+       HLA-DRB1*15:03:01:02 HLA-DRB1*16:02:01	 JAGYVM010000005.1
+       JAGYVO010000024.1    JAGYVS010000035.1	 JAHAMA010000069.1
+       JAHEOL010000047.1    JAHEPC010000026.1	 JAHEPI010000049.1
+       JAHKSG010000017.1    s1 s11 s9
+Set 6: HLA-DRB1*03:01:01:01 HLA-DRB1*03:01:01:02 HLA-DRB1*11:01:01
+       ... s2 s5 s7 s8
+
+Just 6 seqs means every node gets coverage at least once.
+
+Set 1: 36-37 nodes covered (c21)
+Set 2: 37-38
+Set 3: 28
+Set 4: 33-34 (JAGYVX010000013.1 has c9i0, but also in set 1/2)
+Set 5: 29 mostly, 25-29
+Set 6: 33 mostly, 25-33
+
+Ie train on (common to all):
+HLA-DRB1*01:01:01
+HLA-DRB1*04:03:01
+HLA-DRB1*07:01:01:01
+HLA-DRB1*08:03:02
+HLA-DRB1*15:01:01:01
+train6
+HLA-DRB1*03:01:01:01
+train6b (instead of *03)
+HLA-DRB1*10:01:01
++ train7a
+HLA-DRB1*03:01:01:01
+HLA-DRB1*09:21
++ train7 (instead of *03)
+HLA-DRB1*15:01:01:01
+HLA-DRB1*09:21
++ train8
+HLA-DRB1*03:01:01:01
+HLA-DRB1*15:01:01:01
+HLA-DRB1*09:21
+
+# Need one more to cover missing 1st CNV loop
+# JAGYVH010000080.1 maybe instead of HLA-DRB1*01:01:01?
+# (Compare these two)
+# WRONG:  It's the same alignment and the two dotter vs each other
+# very well, but the alignment in gap5 has CNV has shifted from 1st
+# missing to second missing.
+
+Comparison running kmer2node queries for every seq in all.fa
+on index built from all.fa vs train6.fa.
+
+			  all.fa  train6.fa  train6b.fa  train7  train8
+total hit count:      	  1084946 1085147    1080538	1080256	 1085160
+sum ratio of GA-vs-kmer      2891    2927       3008	   3007	    2899
+absent 	     		        0       1(*)       1(+)	      0        0
+
+(*) Absent is ea-d5f in HLA-DRB1*10:01:01
+
+(+) With HLA-DRB1*10:01:01 instead of HLA-DRB1*03:01:01:01 we
+miss ea-d5b in HLA-DRB1*09:21
+
+samtools faidx all.fa HLA-DRB1*04:03:01 HLA-DRB1*07:01:01:01 HLA-DRB1*01:01:01 HLA-DRB1*08:03:02 HLA-DRB1*15:01:01:01 HLA-DRB1*03:01:01:01 HLA-DRB1*10:01:01:01 > train7.fa;./match_file.sh drb1+tangle1.gfa train7.fa all.fa > all7.out
+tr '+' ' ' < all7.out | awk '/===/ {seq=$2} $11 && $12 {a+=($11>$12)?$11/$12:$12/$11} /Node/ && (!$11 || !$12) && (!$11 || $11 >= 0.1) {b++;print seq,$0} /hit/ {h+=$8} END {print a,b,h}'
+
+HLA-DRB1*09:21 Node     ea-d5b	len     25	exp   21.7	hit      0 0	ratio 0.00	1
+HLA-DRB1*09:21 Node     ea-d5f	len     25	exp   18.3	hit      5 9	ratio 0.27	0
+HLA-DRB1*15:02:01 Node      aa-c1	len    603	exp  603.0	hit      1 0	ratio 0.50	0
+2852.04 3 1089345
+
+Hence train7 covers it well:
+
+>HLA-DRB1*04:03:01
+>HLA-DRB1*07:01:01:01
+>HLA-DRB1*01:01:01
+>HLA-DRB1*08:03:02
+>HLA-DRB1*15:01:01:01
+>HLA-DRB1*10:01:01:01
+>HLA-DRB1*09:21
+
+[train8 covers d5c too.]
+
+We have slightly fewer hits and a slightly higher ratio of called vs
+GA disparity, but it misscalls no node.
+
+Stats per node:
+tr '+' ' ' < all7.out | awk '/===/ {seq=$2} $11 && $12 {d=($11>$12)?$11/$12:$12/$11;a[$2]+=d} /hit/ {h[$2]+=$8} END {for (n in a) {printf("%-10s %5.1f %6d\n",n,a[n],h[n])}}' |sort > all7.out.stat
+
+Problematic stats with a limited train7.fa instead of all.fa
+
+        GA-delta/nhits/n   GA-delta/nhits/n
+node	    all.fa	    train.fa
+a1c0	    78/3822/78	    84/3544/78
+a1i0	    53/479/52	    96/299/52   <--- big skew of cycle count? CHECK
+d5c	    19/342/43	    91/430/43	<--- CHECK
+cnvstr	    93/5118/87	   107/4538/87
+c21	   137/11018/77	   130/10900/77
+
+
+a1i0 goes from exp 9.2  hit 9-10 in all.fa  (ratio 0.98 or 1.00)
+to             exp 10.0 hit 5-10 in all7.fa (ratio 0.50 or 1.00)
+TODO: Find the ratio 0.50 seqs and ammend training set?
+
+d5c goes from exp 15.4  hit 15+9 in all.fa  (ratio 0.96)
+to            exp 21.2  hit 10.9 in all7.fa (ratio 0.47)
+TODO: Universally poor.  Why?  Double whammy of too high expectation too
+
+Note a1i0 (aagaatgaag) and d5c (GACACTCAGACGTAGAGTACTCCAA) are small.
+
+Short nodes need immediately preceeding SNPs covered by the training
+candidate members.
+
+a1i0
+----
+train7.fa.nodeseq
+AAGAATGAAG
+TCTCACTGACTTCAAGAATGAAG
+TCTGGCTGACTTCAAGAGTGAAG
+   xx
+
+all.fa.nodeseq
+AAGAATGAAG
+TCTCACTGACTTCAAGAATGAAG
+TCTGGCTGACTTCAAGAGTGAAG
+TTTCACTGACTTCAAGAATGAAG << 
+TTTCGCTGACTTCAAGAATGAAG <<
+TTTTGCTGACTTCAAGAATGAAG <<<<
+ x xx
+
+Adding the last one (TTTTGC...) adjusts a1i0 to 80.1/350/52.  Better,
+but nowhere near good enough still.
+
+TODO: check gap5 pos 1090 to look for better alternatives covering
+a1i0.  Or publish curated train7.fa.nodeseq instead?
+
+DONE: Fixed in train8
+
+d5c
+---
+train7.fa.nodeseq
+GACACTCAGACGTAGAGTACTCCAA <<< Graph node only?
+
+all.fa.nodeseq
+GACACTCAGACGTAGAGTACTCCAA
+CCATTGAAGAAATGACACTCAGACGTAGAGTACTCCAA
+CCATTGAAGAATTGACACTCAGACGTAGAGTACTCCAA
+
+train7.fa.nodeseq implies no read coverage exists for d5c.  I thought
+we'd covered all nodes, but not?
+
+HLA-DRB1*03:01:01:01 does cover it, which we switched.
+(Also *11,*13,*14)
+
+DONE: fixed in train8
+
+=> train8 works
+>HLA-DRB1*04:03:01
+>HLA-DRB1*07:01:01:01
+>HLA-DRB1*01:01:01
+>HLA-DRB1*08:03:02
+>HLA-DRB1*15:01:01:01
+>HLA-DRB1*10:01:01:01
+>HLA-DRB1*09:21
+>HLA-DRB1*03:01:01:01
+
+=============================================================================
+
+2024-06-27  Add bi-directional indexing for double stranded matching.
+
+We compare seq as before, but now the index has both strands so we
+will find a match either way.
+
+TODO: check for non-uniqueness across both?
+
+Important: KGAP is in the middle.
+
+
+After this ab-a0d1 is regularly finding hits where previously it found
+none.  Why?
+
+Eg on h16.fa:
+Node    ab-a0d1	len      4	exp    3.8	hit      3+18	ratio 0.79
+
+a0d1 is very low complexity with poly-A / poly-T
+
+@ab-a0d1
+TTTC
+GAAAGGAAATCTGTTTCTTTCTTTCTTTTTTTTGTTTTTTTG
+GAAAGGAAATCTCTTTCTTTTCTTTCTTTCTTTCCTTCTTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCCTTCTTTCTTCCTTCCCTCCCTCCCTCCCTTTCTTTCTTTCTTTTTTTTTTTTTG
+GAAAGGAAATCTCTCTCTTTCTTTTCTTTCTTTCTTTCCTTCTTTCCTTCCTTCCTTCCTTCCTTCCTTCCCTCCCTCCCTCCGTCCCTTTCTTTCTTTTTTTTTTTG
+
+
+We hit the AAAAAAAAAAAGAA nodes (TTCTTTTTTTTTTT) between a1i2b and
+a1c2 nodes in our graph, although there's no edge to take us that way.
+
+This inverse repeat was previously not visible in the graph matching.
+
+
+It's a really suspect node in the first place, so sporadic hits is
+just a nice challenge for the matching algorithms, to see if they can
+cope with hits in impossible to reach places.
+
+
+=============================================================================
+
+1/7/2024:  shred.pl
+
+This takes a fasta sequence and produces a new fasta file with many
+randomly shredded fragments (perhaps short if it's the very start
+and/or end) such that the kmer indexer should still have good
+coverage.
+
+This will give similar stats to analysing one long sequence, but
+multiplied up by the depth and with a broader depth distribution
+coming from the random sampling (see Lander-Waterman statistics
+https://doi.org/10.1016/0888-7543(88)90007-9).
+
+    ./shred.pl -e 0.001 -l 150 -s 0 -d 100 < s1.fa \
+    | ./kmer2node train8.fa.nodeseq - 1 \
+    | awk '/Node/ && $NF > 1'
+
+
+We can validate it in gap5 via e.g.:
+
+./shred.pl -e 0.01 -l 150 -s 0 -d 100 < s1.fa  > _.fa;/software/grit/tools/SDA/envs/sda-python-3/bin/minimap2 -x sr -a s1.fa _.fa | samtools view -h -F 0xf00 | samtools sort - > _.sam;samtools index _.sam;\tg_index _.sam
+
+
+
+New examples.
+
+s1:   fewer CNV copies
+s4:   i18 and t1 adjacent to CNV loops
+s6:   t1 early between c3 and c4
+s7:   no t1
+
+See s*.fa.100x.gfa for annotated GFAs.
+

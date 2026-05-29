@@ -1,0 +1,6 @@
+solver,graph,budget_s,seqs,seeds,covered,used,contigs,breaks,indels,diffs,identity,source
+mqlib,mg,100,40,00001-00008,56.675,94.70925,3.675,1.55,0.225,0.0,99.14175,results/overnight_dynaco_paper/20260522_013319/full_assembly/mqlib.mg.00001-00008/*.eval_cons.100.*
+neural_aco,mg,5,40,00001-00008,58.8815,93.2065,4.85,1.4,0.4,0.0,99.376,results/dynaco_claims/20260524_013755/full_budget/best_consensus_summary.csv
+neural_aco,mg,10,40,00001-00008,62.673,93.44275,4.55,1.025,0.25,0.025,99.149,results/dynaco_claims/20260524_013755/full_budget/best_consensus_summary.csv
+neural_aco,mg,10_repeat,40,00001-00008,60.75425,93.4075,4.375,1.05,0.375,0.025,98.81675,results/dynaco_claims/20260524_125236/full_budget/best_consensus_summary.csv
+neural_aco,mg,30,40,00001-00008,59.3895,91.73225,4.55,2.325,0.275,0.025,99.265,results/dynaco_claims/20260524_013755/full_budget/best_consensus_summary.csv

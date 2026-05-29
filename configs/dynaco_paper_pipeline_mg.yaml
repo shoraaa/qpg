@@ -1,0 +1,57 @@
+# MG-specific DyNACO training with paper-pipeline GFAs generated during training.
+#
+# This config intentionally drops cross-annotator robustness. It trains and
+# validates the learned transition prior only on minigraph-derived GFAs, because
+# the paper claim is scoped to the MG assembly route and its Pathfinder baseline.
+
+paper_pipeline_train: true
+paper_pipeline_validation: true
+paper_pipeline_cache_dir: results/dynaco_mg/paper_pipeline_cache
+paper_pipeline_annotators: mg
+paper_pipeline_test_sequences: 5
+paper_pipeline_shred_depth: 30
+paper_pipeline_train_start_seed: 1
+paper_pipeline_val_start_seed: 100001
+paper_pipeline_min_train_instances: 32
+paper_pipeline_val_instances: 32
+# Keep MG training in the same size regime as the paper benchmark. A 30-segment
+# cap rejected the generated MG population entirely in the 2026-05-29 pilot
+# cache, so it trained/evaluated on a different distribution than the claim.
+paper_pipeline_max_segments: 80
+paper_pipeline_max_horizon: 300
+paper_pipeline_generation_attempt_limit: 100
+
+generate_synthetic_train: 0
+generate_synthetic_test: 0
+
+copy_numbers: paper
+penalties: 200,50,1
+alpha_qubo: 1.1
+
+epochs: 10
+instances_per_epoch: 16
+H: 10
+mini_H: 10
+n_ants: 32
+lr: 0.0005
+alpha: 1.0
+beta: 1.0
+gamma: 1.0
+rho: 0.1
+elite_frac: 0.25
+grad_clip: 1.0
+
+units: 64
+depth: 4
+seed: 1
+device: cuda
+
+validate_every: 1
+validate_limit: 16
+validation_objective: gap_to_aco
+save_epoch_checkpoints: true
+skip_final_eval: true
+eval_time_limit: 2
+no_aco_eval: false
+
+out: results/dynaco_mg/paper_pipeline_mg.pt

@@ -1,0 +1,196 @@
+#!/bin/bash
+
+gfa_filepath=$1
+query=$2 
+outdir=$3 
+penalties=$4
+solver=$5 
+num_jobs=$6 
+time_limits=$7
+
+. ${CONFIG:-$QDIR/config_illumina.sh}
+
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+QUBO_DIR=$SCRIPT_DIR/qubo/qubo_solvers/oriented_tangle
+PYTHON=${PYTHON:-python3}
+# source $QUBO_DIR/qubo_venv/bin/activate
+
+eval $pathfinder $pathfinder_opts "$gfa_filepath" 2>"$gfa_filepath.pf.err" > "$query.path"
+
+awk '
+    BEGIN { 
+        in_subgraph_table = 0;
+        subgraph_idx = 1; 
+    }
+    /^PATH/ {
+        in_subgraph_table = 0;
+    }
+    /^SUBGRAPH/ {
+        in_subgraph_table = 1;
+        print "Subgraph", subgraph_idx
+        subgraph_idx = subgraph_idx + 1
+        next; # Skip the header line
+    }
+
+    in_subgraph_table == 1 {
+        if (NF >= 5) {
+            print $3, $6;
+        }
+    }
+    ' "$query.path" > "$query.subgraph"
+
+    awk '
+    BEGIN {
+        in_subgraph_table = 0;           
+        current_subgraph_name = "";      
+        node_list = "";                  
+        data_list = "";                  
+    }
+
+    /^Subgraph/ {
+        if (in_subgraph_table == 1 && current_subgraph_name != "") {
+            print "SUBGRAPH_START:" current_subgraph_name;
+            print "NODES_LIST:" node_list;
+            print "DATA_LIST:" data_list;
+            print "SUBGRAPH_END";
+        }
+
+        in_subgraph_table = 1;           
+        current_subgraph_name = $2;      # Assume the subgraph name is the second field on the line
+        node_list = "";    
+        data_list = "";              
+        next;                            
+    }
+
+    in_subgraph_table == 1 {
+        if (NF >= 1) {
+            if (node_list == "") {
+                node_list = $1;
+            } else {
+                node_list = node_list " " $1; 
+            }
+            if (NF >= 2) {
+                if (data_list == "") {
+                    data_list = $2;
+                } else {
+                    data_list = data_list " " $2; 
+                }
+            } else {
+                if (data_list == "") {
+                    data_list = ""; 
+                } else {
+                    data_list = data_list " ";
+                }
+            }
+        } else if (NF == 0) { 
+            if (current_subgraph_name != "") {
+                print "SUBGRAPH_START:" current_subgraph_name;
+                print "NODES_LIST:" node_list;
+                print "DATA_LIST:" data_list;
+                print "SUBGRAPH_END";
+            }
+            in_subgraph_table = 0;       
+            current_subgraph_name = "";  
+            node_list = "";    
+            data_list = "";          
+        }
+    }
+
+    END {
+        if (in_subgraph_table == 1 && current_subgraph_name != "") {
+            print "SUBGRAPH_START:" current_subgraph_name;
+            print "NODES_LIST:" node_list;
+            print "DATA_LIST:" data_list;
+            print "SUBGRAPH_END";
+        }
+    }
+    ' "$query".subgraph | while IFS= read -r line; do
+
+        if [[ "$line" == "SUBGRAPH_START:"* ]]; then
+            current_subgraph_name="${line#SUBGRAPH_START:}" 
+            current_nodes_str=""
+            current_data_str=""
+        elif [[ "$line" == "NODES_LIST:"* ]]; then
+            current_nodes_str="${line#NODES_LIST:}"
+        elif [[ "$line" == "DATA_LIST:"* ]]; then
+            current_data_str="${line#DATA_LIST:}"
+        elif [[ "$line" == "SUBGRAPH_END" ]]; then
+            output_gfa_file="${query}.subgraph.${current_subgraph_name}.gfa"
+            output_data_file="${query}.copy_numbers.${current_subgraph_name}.txt"
+
+            echo "Creating $output_gfa_file and $output_data_file..."
+            touch "$output_gfa_file" 
+            touch "$output_data_file" 
+
+            if [ -n "$current_data_str" ]; then
+                echo "$current_data_str" | tr ' ' ',' >> "$output_data_file"
+            fi
+
+            if [[ -n "$current_nodes_str" ]]; then 
+
+                awk -v nodes_to_include="$current_nodes_str" '
+                    BEGIN {
+                        split(nodes_to_include, node_set_arr, " ");
+                        for (i in node_set_arr) {
+                            node_set[node_set_arr[i]] = 1;
+                        }
+                    }
+
+                    $1 == "S" {
+                        if (node_set[$2]) {
+                            print $0;
+                        }
+                    }
+
+                    $1 == "L" {
+                        if (node_set[$2] && node_set[$4]) {
+                            print $0;
+                        }
+                    }
+                ' "$gfa_filepath" >> "$output_gfa_file"
+
+                "$PYTHON" "$QUBO_DIR/build_oriented_qubo_matrix.py" -f "$output_gfa_file" -d "$outdir" -c "$(cat $output_data_file)" -p "$penalties"
+                "$PYTHON" "$QUBO_DIR/oriented_max_path.py" -s "$solver" -f "$output_gfa_file" -d "$outdir" -j "$num_jobs" -t "$time_limits" -o "$query.subgraph.$current_subgraph_name.gaf"
+
+                for t in ${time_limits//,/ }; do
+                    for ((idx=0;idx<num_jobs;idx++)); do
+                        fragment_content=""
+                        in_fragment=false
+                        counter=0
+                        while IFS= read -r line || [[ -n "$line" ]]; do
+                            if [[ "$line" == "Begin fragment" ]]; then
+                                if [ "$in_fragment" = true ] && [ -n "$fragment_content" ]; then
+                                    tmp_file=$(mktemp)
+                                    echo -e "$fragment_content" > "$tmp_file"
+                                    echo ">contig_$current_subgraph_name.$counter" >> "$query.path_seq.$t.$idx"
+                                    path2seq.pl "$output_gfa_file" "$tmp_file" >> "$query.path_seq.$t.$idx"
+                                    counter=$((counter+1))
+                                    rm "$tmp_file"
+                                fi
+
+                                in_fragment=true
+                                fragment_content=""
+                                continue 
+                            fi
+
+                            if [ "$in_fragment" = true ]; then
+                                fragment_content+="$line"$'\n'
+                            fi
+                        done  < "$query.subgraph.$current_subgraph_name.gaf.$t.$idx"
+                        
+                        if [ "$in_fragment" = true ] && [ -n "$fragment_content" ]; then
+                            tmp_file=$(mktemp)
+                            echo -e "$fragment_content" > "$tmp_file"
+                            echo ">contig_$current_subgraph_name.$counter" >> "$query.path_seq.$t.$idx"
+                            path2seq.pl "$output_gfa_file" "$tmp_file" >> "$query.path_seq.$t.$idx"
+                            rm "$tmp_file"
+                        fi
+                    done
+                done
+
+                current_subgraph_name=""
+                current_nodes_str=""
+                current_data_str=""
+            fi
+        fi
+    done

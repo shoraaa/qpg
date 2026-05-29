@@ -1,0 +1,10 @@
+H	VN:Z:1.0
+S	A	ACGT	LN:i:4
+S	B	CGTA	LN:i:4
+S	C	GTAC	LN:i:4
+S	D	TACG	LN:i:4
+S	E	ACGA	LN:i:4
+L	A	+	B	+	0M
+L	B	+	C	+	0M
+L	C	+	D	+	0M
+L	D	+	E	+	0M

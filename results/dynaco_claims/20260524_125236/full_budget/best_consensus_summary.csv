@@ -1,0 +1,2 @@
+solver,graph,budget_s,seqs,seeds,covered,used,contigs,breaks,indels,diffs,identity
+neural_aco,mg,10,40,00001-00008,60.75425,93.4075,4.375,1.05,0.375,0.025,98.81675

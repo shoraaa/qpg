@@ -1,0 +1,86 @@
+{
+  "args": {
+    "H": 3,
+    "aco_alpha": 1.0,
+    "aco_beta": 1.0,
+    "aco_evaporation": 0.1,
+    "aco_gamma": 1.0,
+    "aco_min_iterations": 15,
+    "annotators": "mg",
+    "budgets": [
+      1,
+      3,
+      5,
+      10
+    ],
+    "device": "cuda",
+    "execute": true,
+    "full_jobs": 3,
+    "gfa_globs": [
+      "results/overnight_dynaco_paper/*/generated/paper_pipeline_cache/train/mg.*/*.gfa",
+      "results/overnight_dynaco_paper/*/generated/paper_pipeline_cache/val/mg.*/*.gfa",
+      "results/overnight_dynaco_paper/*/generated/paper_pipeline_cache/test/mg.*/*.gfa",
+      "results/dynaco_online/generated_larger/test/*.gfa",
+      "results/dynaco_online/paper_pipeline_online_cache/**/*.gfa",
+      "examples/*.gfa"
+    ],
+    "max_expansions": 100000,
+    "max_gfas": 24,
+    "max_segments": 80,
+    "min_segments": 30,
+    "mini_H": 5,
+    "model": "/home/shora/Research/qpg/results/overnight_dynaco_paper/20260522_013319/dynaco_overnight_best.pt",
+    "mqlib_cache": "/home/shora/Research/qpg/results/overnight_dynaco_paper/20260522_013319/analytics/partial_full_assembly_best_consensus.csv",
+    "n_ants": 8,
+    "out_dir": "/home/shora/Research/qpg/results/dynaco_claims/20260524_013526",
+    "parallel_traced": true,
+    "pathfinder_graph": true,
+    "qubo_baselines": "aco,beam_search,local",
+    "qubo_jobs": 1,
+    "qubo_local_jobs": 1,
+    "run_mqlib": true,
+    "seed_start": 1,
+    "seeds": 8,
+    "segment_bucket_width": 50,
+    "shred_depth": 30,
+    "shuf_random_source": "/usr/bin/emacs",
+    "suite": "qubo-scale",
+    "test_sequences": 5,
+    "threads": null
+  },
+  "created_at": "2026-05-24T01:35:26",
+  "environment_overrides": {
+    "BWA": "/home/shora/Research/qpg/.tools/bwa/bwa",
+    "PATHFINDER": "/home/shora/Research/qpg/.tools/bin/pathfinder",
+    "QPG_ACO_DEVICE": "cuda",
+    "QPG_ACO_MODEL": "/home/shora/Research/qpg/results/overnight_dynaco_paper/20260522_013319/dynaco_overnight_best.pt"
+  },
+  "out_dir": "/home/shora/Research/qpg/results/dynaco_claims/20260524_013526",
+  "policy": {
+    "active_annotators": [
+      "mg"
+    ],
+    "default_solver": "neural_aco",
+    "excluded": [
+      "non-minigraph annotation routes",
+      "pathfinder baseline rows"
+    ],
+    "mqlib": "cached full-stage target by default; include in qubo-scale with --run-mqlib",
+    "qubo_baselines": [
+      "aco",
+      "beam_search",
+      "local"
+    ]
+  },
+  "repo_root": "/home/shora/Research/qpg",
+  "tool_status": {
+    "GraphAligner": "/home/shora/Research/qpg/.tools/bin/GraphAligner",
+    "MQLib": "/home/shora/Research/qpg/.tools/bin/MQLib",
+    "bwa": "/home/shora/Research/qpg/.tools/bwa/bwa",
+    "kmer2node4": "/home/shora/Research/qpg/kmer2node4",
+    "minigraph": "/home/shora/Research/qpg/.tools/bin/minigraph",
+    "minimap2": "/home/shora/Research/qpg/.tools/minimap2/minimap2",
+    "parallel": "/usr/bin/parallel",
+    "samtools": "/home/shora/Research/qpg/.tools/samtools/samtools"
+  }
+}
