@@ -11,6 +11,8 @@ kmer2node4
 *.so
 *.o
 
+wandb/
+
 # LaTeX build products
 *.aux
 *.bbl

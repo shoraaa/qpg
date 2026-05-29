@@ -591,6 +591,17 @@ def build_instance(gfa: Path, args) -> OnlineInstance:
     )
 
 
+def try_build_instance(gfa: Path, args, *, split: str) -> OnlineInstance | None:
+    try:
+        return build_instance(gfa, args)
+    except subprocess.TimeoutExpired as exc:
+        print(
+            f"skip_timeout\t{split}\t{gfa}\tcopy_number_timeout={exc.timeout}",
+            flush=True,
+        )
+        return None
+
+
 def train_on_instance(model, optimizer, instance: OnlineInstance, args, device, seed: int) -> dict[str, float]:
     pheromone = np.ones_like(instance.heuristic, dtype=np.float32)
     best_energy = float("inf")
@@ -764,7 +775,9 @@ def run_neural_aco_eval(model, instance: OnlineInstance, args, device, seed: int
 def evaluate(model, test_gfas: list[Path], args, device) -> list[dict[str, object]]:
     rows = []
     for index, gfa in enumerate(tqdm(test_gfas, desc="final eval", unit="gfa")):
-        instance = build_instance(gfa, args)
+        instance = try_build_instance(gfa, args, split="eval")
+        if instance is None:
+            continue
         neural_energy, neural_runtime = run_neural_aco_eval(
             model,
             instance,
@@ -827,7 +840,9 @@ def validation_score(model, test_gfas: list[Path], args, device, *, epoch: int) 
     energies = []
     gaps_to_aco = []
     for index, gfa in enumerate(tqdm(val_gfas, desc=f"validation epoch {epoch}", unit="gfa", leave=False)):
-        instance = build_instance(gfa, args)
+        instance = try_build_instance(gfa, args, split="val")
+        if instance is None:
+            continue
         energy, runtime = run_neural_aco_eval(
             model,
             instance,
@@ -871,6 +886,8 @@ def validation_score(model, test_gfas: list[Path], args, device, *, epoch: int) 
                 f"val\t{epoch}\t{Path(gfa).name}\taco={baseline_energy:.12g}\t"
                 f"neural_aco={energy:.12g}\tgap_to_aco={energy - baseline_energy:.12g}\t{runtime:.3f}s"
             )
+    if not energies:
+        return None
     mean_energy = float(np.mean(energies))
     result = {"mean_energy": mean_energy}
     if gaps_to_aco:
@@ -1117,14 +1134,35 @@ def main() -> int:
                 train_gfas = train_source.ensure(target_pool)
                 print(f"paper_pipeline_pool\tepoch={epoch}\ttrain_instances={len(train_gfas)}", flush=True)
         epoch_rows = []
+        local_index = 0
+        skipped_instances = 0
         for local_index in tqdm(
             range(args.steps_per_epoch),
             desc=f"epoch {epoch} instances",
             unit="inst",
             leave=False,
         ):
-            gfa = train_gfas[local_index] if args.paper_pipeline_fresh_epoch_instances else random.choice(train_gfas)
-            instance = build_instance(gfa, args)
+            while True:
+                if args.paper_pipeline_fresh_epoch_instances:
+                    if local_index >= len(train_gfas):
+                        train_gfas.extend(train_source.ensure_new(args.steps_per_epoch - len(epoch_rows)))
+                    gfa = train_gfas[local_index]
+                else:
+                    gfa = random.choice(train_gfas)
+                instance = try_build_instance(gfa, args, split="train")
+                if instance is not None:
+                    break
+                skipped_instances += 1
+                if args.paper_pipeline_fresh_epoch_instances:
+                    replacement = train_source.ensure_new(1)
+                    train_gfas.extend(replacement)
+                    local_index += 1
+                    continue
+                if skipped_instances >= args.paper_pipeline_generation_attempt_limit:
+                    raise RuntimeError(
+                        f"Could not build a train instance after {skipped_instances} skipped GFAs. "
+                        "Check copy-number timeouts or lower the paper-pipeline size guard."
+                    )
             stats = train_on_instance(
                 model,
                 optimizer,
@@ -1152,6 +1190,8 @@ def main() -> int:
                     },
                     step=global_step,
                 )
+        if not epoch_rows:
+            raise RuntimeError(f"Epoch {epoch} produced no trainable instances.")
         mean_energy = float(np.mean([row["mean_energy"] for row in epoch_rows]))
         best_energy = float(np.min([row["best_energy"] for row in epoch_rows]))
         loss = float(np.mean([row["loss"] for row in epoch_rows]))
