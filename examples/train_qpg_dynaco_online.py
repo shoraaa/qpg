@@ -24,6 +24,31 @@ import time
 
 import numpy as np
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    class _NullProgress:
+        def __init__(self, iterable=None, *args, **kwargs):
+            self.iterable = iterable
+
+        def __iter__(self):
+            return iter(self.iterable if self.iterable is not None else [])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self, n=1):
+            return None
+
+        def set_postfix(self, *args, **kwargs):
+            return None
+
+    def tqdm(iterable=None, *args, **kwargs):
+        return _NullProgress(iterable, *args, **kwargs)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "qubo"))
 sys.path.insert(0, str(REPO_ROOT / "examples"))
@@ -168,6 +193,41 @@ def checkpoint_path(out_path: Path, suffix: str) -> Path:
     return out_path.with_name(f"{out_path.stem}_{suffix}{out_path.suffix}")
 
 
+def wandb_config(args) -> dict[str, object]:
+    config = {}
+    for key, value in vars(args).items():
+        if isinstance(value, Path):
+            config[key] = str(value)
+        elif isinstance(value, (str, int, float, bool)) or value is None:
+            config[key] = value
+        else:
+            config[key] = str(value)
+    return config
+
+
+def init_wandb(args):
+    if not args.wandb:
+        return None
+    try:
+        import wandb  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError("wandb logging requested, but wandb is not installed. Run `uv sync`.") from exc
+    tags = split_csv(args.wandb_tags) if args.wandb_tags else None
+    run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity or None,
+        name=args.wandb_run_name or args.out.parent.name,
+        mode=args.wandb_mode,
+        tags=tags,
+        config=wandb_config(args),
+    )
+    wandb.define_metric("train/global_step")
+    wandb.define_metric("train/*", step_metric="train/global_step")
+    wandb.define_metric("val/*", step_metric="train/global_step")
+    wandb.define_metric("checkpoint/*", step_metric="train/global_step")
+    return run
+
+
 @dataclass
 class OnlineInstance:
     gfa: Path
@@ -244,19 +304,43 @@ def estimate_gfa_horizon(path: Path, alpha: float, copy_numbers_mode: str) -> in
     return int(np.floor(2.0 * sum(copy_numbers) * alpha)) if copy_numbers else 0
 
 
+def horizon_cache_path(metadata_csv: Path, copy_numbers_mode: str, alpha: float) -> Path:
+    safe_mode = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in copy_numbers_mode)
+    safe_alpha = str(alpha).replace(".", "p")
+    return metadata_csv.with_name(f"horizon_cache.{safe_mode}.{safe_alpha}.json")
+
+
+def load_horizon_cache(path: Path) -> dict[str, dict[str, object]]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_horizon_cache(path: Path, cache: dict[str, dict[str, object]]) -> None:
+    path.write_text(json.dumps(cache, indent=2, sort_keys=True) + "\n")
+
+
 def corpus_rows(
     metadata_csv: Path,
     max_segments: int,
     max_horizon: int,
     alpha_qubo: float,
     copy_numbers_mode: str,
+    index_horizon: bool,
 ) -> list[dict[str, str]]:
     if not metadata_csv.exists():
         return []
     with metadata_csv.open() as handle:
         rows = list(csv.DictReader(handle))
+    cache_file = horizon_cache_path(metadata_csv, copy_numbers_mode, alpha_qubo)
+    horizon_cache = load_horizon_cache(cache_file)
+    cache_dirty = False
     filtered = []
-    for row in rows:
+    for row in tqdm(rows, desc=f"index {metadata_csv.parent.parent.name}", unit="gfa", leave=False):
         segments = int(row.get("segments") or 0)
         if segments <= 0:
             continue
@@ -265,11 +349,40 @@ def corpus_rows(
         path = Path(row["gfa"])
         if not path.exists():
             continue
-        horizon = estimate_gfa_horizon(path, alpha_qubo, copy_numbers_mode)
+        if index_horizon:
+            key = str(path.resolve())
+            stat = path.stat()
+            cached = horizon_cache.get(key)
+            horizon = None
+            if (
+                isinstance(cached, dict)
+                and cached.get("mtime_ns") == stat.st_mtime_ns
+                and cached.get("size") == stat.st_size
+            ):
+                try:
+                    horizon = int(cached["horizon"])
+                except (KeyError, TypeError, ValueError):
+                    horizon = None
+            if horizon is None:
+                try:
+                    horizon = estimate_gfa_horizon(path, alpha_qubo, copy_numbers_mode)
+                except subprocess.TimeoutExpired:
+                    print(f"skip_timeout\t{path}\tcopy_number_timeout={os.environ.get('QPG_COPY_NUMBER_TIMEOUT', '30')}", flush=True)
+                    continue
+                horizon_cache[key] = {
+                    "mtime_ns": stat.st_mtime_ns,
+                    "size": stat.st_size,
+                    "horizon": horizon,
+                }
+                cache_dirty = True
+        else:
+            horizon = int(np.floor(2.0 * segments * alpha_qubo))
         if max_horizon > 0 and horizon > max_horizon:
             continue
         row["estimated_horizon"] = str(horizon)
         filtered.append(row)
+    if cache_dirty:
+        write_horizon_cache(cache_file, horizon_cache)
     return filtered
 
 
@@ -298,6 +411,7 @@ class PaperPipelineGfaSource:
             self.max_horizon,
             self.args.alpha_qubo,
             self.args.copy_numbers,
+            self.args.paper_pipeline_index_horizon,
         )
         self._paths = [Path(row["gfa"]).resolve() for row in rows]
 
@@ -307,20 +421,59 @@ class PaperPipelineGfaSource:
 
     def ensure(self, min_instances: int) -> list[Path]:
         attempts = 0
-        while len(self.paths()) < min_instances:
-            before = len(self._paths)
-            self.generate_next_seed()
-            after = len(self.paths())
-            attempts = attempts + 1 if after <= before else 0
-            if attempts >= self.args.paper_pipeline_generation_attempt_limit:
-                raise RuntimeError(
-                    f"Paper-pipeline {self.split} generation could not collect {min_instances} "
-                    f"GFAs after {attempts} consecutive seeds. Current count={after}; "
-                    f"max_segments={self.max_segments}, max_horizon={self.max_horizon}. "
-                    "Increase --paper-pipeline-max-segments/--paper-pipeline-max-horizon, "
-                    "reduce the requested validation/pool size, or move QUBO construction to a sparse path."
-                )
+        current = len(self.paths())
+        with tqdm(
+            total=min_instances,
+            initial=min(current, min_instances),
+            desc=f"paper {self.split} GFAs",
+            unit="gfa",
+            leave=False,
+        ) as progress:
+            while current < min_instances:
+                before = len(self._paths)
+                self.generate_next_seed()
+                after = len(self.paths())
+                progress.update(max(0, min(after, min_instances) - min(current, min_instances)))
+                progress.set_postfix(accepted=after, seed=self.seed - 1, stagnant=attempts)
+                current = after
+                attempts = attempts + 1 if after <= before else 0
+                if attempts >= self.args.paper_pipeline_generation_attempt_limit:
+                    raise RuntimeError(
+                        f"Paper-pipeline {self.split} generation could not collect {min_instances} "
+                        f"GFAs after {attempts} consecutive seeds. Current count={after}; "
+                        f"max_segments={self.max_segments}, max_horizon={self.max_horizon}. "
+                        "Increase --paper-pipeline-max-segments/--paper-pipeline-max-horizon, "
+                        "reduce the requested validation/pool size, or move QUBO construction to a sparse path."
+                    )
         return self.paths()
+
+    def ensure_new(self, min_new_instances: int) -> list[Path]:
+        before = set(self.paths())
+        attempts = 0
+        new_paths: list[Path] = []
+        with tqdm(
+            total=min_new_instances,
+            desc=f"paper {self.split} fresh GFAs",
+            unit="gfa",
+            leave=False,
+        ) as progress:
+            while len(new_paths) < min_new_instances:
+                previous_count = len(self._paths)
+                self.generate_next_seed()
+                current_paths = self.paths()
+                new_paths = [path for path in current_paths if path not in before]
+                progress.n = min(len(new_paths), min_new_instances)
+                progress.set_postfix(accepted=len(current_paths), seed=self.seed - 1, stagnant=attempts)
+                progress.refresh()
+                attempts = attempts + 1 if len(current_paths) <= previous_count else 0
+                if attempts >= self.args.paper_pipeline_generation_attempt_limit:
+                    raise RuntimeError(
+                        f"Paper-pipeline {self.split} generation could not collect "
+                        f"{min_new_instances} fresh GFAs after {attempts} consecutive seeds. "
+                        f"Fresh count={len(new_paths)}; max_segments={self.max_segments}, "
+                        f"max_horizon={self.max_horizon}."
+                    )
+        return new_paths[:min_new_instances]
 
     def generate_next_seed(self) -> None:
         seed = self.seed
@@ -610,7 +763,7 @@ def run_neural_aco_eval(model, instance: OnlineInstance, args, device, seed: int
 
 def evaluate(model, test_gfas: list[Path], args, device) -> list[dict[str, object]]:
     rows = []
-    for index, gfa in enumerate(test_gfas):
+    for index, gfa in enumerate(tqdm(test_gfas, desc="final eval", unit="gfa")):
         instance = build_instance(gfa, args)
         neural_energy, neural_runtime = run_neural_aco_eval(
             model,
@@ -673,7 +826,7 @@ def validation_score(model, test_gfas: list[Path], args, device, *, epoch: int) 
     val_gfas = test_gfas[: args.validate_limit] if args.validate_limit > 0 else test_gfas
     energies = []
     gaps_to_aco = []
-    for index, gfa in enumerate(val_gfas):
+    for index, gfa in enumerate(tqdm(val_gfas, desc=f"validation epoch {epoch}", unit="gfa", leave=False)):
         instance = build_instance(gfa, args)
         energy, runtime = run_neural_aco_eval(
             model,
@@ -778,6 +931,22 @@ def main() -> int:
         type=int,
         help="Keep only generated GFAs with estimated QUBO horizon at most this value; 0 disables filtering.",
     )
+    parser.add_argument(
+        "--paper-pipeline-index-horizon",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Use exact paper-copy-number horizon filtering while indexing generated GFAs. "
+            "Disable to use a cheap segment-count horizon proxy and defer exact copy numbers "
+            "to selected training instances."
+        ),
+    )
+    parser.add_argument(
+        "--paper-pipeline-fresh-epoch-instances",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="In paper-pipeline training, train each epoch on fresh generated GFAs instead of resampling a growing pool.",
+    )
     parser.add_argument("-c", "--copy-numbers", default="ones")
     parser.add_argument("-p", "--penalties", default="200,50,1")
     parser.add_argument("--alpha-qubo", default=1.1, type=float)
@@ -859,6 +1028,12 @@ def main() -> int:
     parser.add_argument("--eval-ants", default=None, type=int)
     parser.add_argument("--no-aco-eval", action="store_true")
     parser.add_argument("--skip-final-eval", action="store_true", help="Save checkpoint/history without running final held-out evaluation.")
+    parser.add_argument("--wandb", action=argparse.BooleanOptionalAction, default=False, help="Log training and validation metrics to Weights & Biases.")
+    parser.add_argument("--wandb-project", default="qpg-dynaco")
+    parser.add_argument("--wandb-entity", default="")
+    parser.add_argument("--wandb-run-name", default="")
+    parser.add_argument("--wandb-tags", default="")
+    parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
     parser.add_argument("--out", type=Path)
     if pre_args.config is not None:
         parser.set_defaults(**config_defaults(load_config(pre_args.config)))
@@ -889,7 +1064,8 @@ def main() -> int:
             "train",
             start_seed=args.paper_pipeline_train_start_seed,
         )
-        train_gfas.extend(train_source.ensure(args.paper_pipeline_min_train_instances))
+        if not args.paper_pipeline_fresh_epoch_instances:
+            train_gfas.extend(train_source.ensure(args.paper_pipeline_min_train_instances))
     if args.paper_pipeline_validation:
         val_source = PaperPipelineGfaSource(
             args,
@@ -898,7 +1074,7 @@ def main() -> int:
             target_instances=args.paper_pipeline_val_instances,
         )
         test_gfas.extend(val_source.ensure(args.paper_pipeline_val_instances))
-    if not train_gfas:
+    if not train_gfas and train_source is None:
         raise ValueError("Provide --train-gfas/--train-glob, --generate-synthetic-train, or --paper-pipeline-train.")
 
     device = torch.device(args.device)
@@ -918,9 +1094,12 @@ def main() -> int:
         print(f"resumed_checkpoint: {args.resume}\tstart_epoch={start_epoch}")
     started = time.perf_counter()
     print(f"train_instances: {len(train_gfas)}")
+    if args.paper_pipeline_fresh_epoch_instances:
+        print(f"paper_pipeline_fresh_epoch_instances: {args.steps_per_epoch}")
     if test_gfas:
         print(f"test_instances: {len(test_gfas)}")
     print("epoch\tinstance\tmean_energy\tbest_energy\tloss")
+    wandb_run = init_wandb(args)
 
     history = []
     best_checkpoint_energy = float("inf")
@@ -928,14 +1107,23 @@ def main() -> int:
     best_checkpoint = checkpoint_path(args.out, "best")
     best_val_checkpoint = checkpoint_path(args.out, "val_best")
     latest_checkpoint = checkpoint_path(args.out, "latest")
-    for epoch in range(start_epoch, args.epochs + 1):
+    for epoch in tqdm(range(start_epoch, args.epochs + 1), desc="train epochs", unit="epoch"):
         if train_source is not None:
-            target_pool = args.paper_pipeline_min_train_instances + (epoch - start_epoch + 1) * args.steps_per_epoch
-            train_gfas = train_source.ensure(target_pool)
-            print(f"paper_pipeline_pool\tepoch={epoch}\ttrain_instances={len(train_gfas)}", flush=True)
+            if args.paper_pipeline_fresh_epoch_instances:
+                train_gfas = train_source.ensure_new(args.steps_per_epoch)
+                print(f"paper_pipeline_epoch_fresh\tepoch={epoch}\ttrain_instances={len(train_gfas)}", flush=True)
+            else:
+                target_pool = args.paper_pipeline_min_train_instances + (epoch - start_epoch + 1) * args.steps_per_epoch
+                train_gfas = train_source.ensure(target_pool)
+                print(f"paper_pipeline_pool\tepoch={epoch}\ttrain_instances={len(train_gfas)}", flush=True)
         epoch_rows = []
-        for local_index in range(args.steps_per_epoch):
-            gfa = random.choice(train_gfas)
+        for local_index in tqdm(
+            range(args.steps_per_epoch),
+            desc=f"epoch {epoch} instances",
+            unit="inst",
+            leave=False,
+        ):
+            gfa = train_gfas[local_index] if args.paper_pipeline_fresh_epoch_instances else random.choice(train_gfas)
             instance = build_instance(gfa, args)
             stats = train_on_instance(
                 model,
@@ -948,9 +1136,39 @@ def main() -> int:
             row = {"epoch": epoch, "gfa": str(gfa), **stats}
             history.append(row)
             epoch_rows.append(row)
+            global_step = (epoch - 1) * args.steps_per_epoch + local_index + 1
+            if wandb_run is not None:
+                wandb_run.log(
+                    {
+                        "train/global_step": global_step,
+                        "train/instance_mean_energy": stats["mean_energy"],
+                        "train/instance_best_energy": stats["best_energy"],
+                        "train/instance_loss": stats["loss"],
+                        "train/epoch": epoch,
+                        "train/local_index": local_index,
+                        "train/instance_segments": instance.description.V,
+                        "train/instance_horizon": instance.description.T,
+                        "train/instance_qubo_variables": int(instance.q_float.shape[0]),
+                    },
+                    step=global_step,
+                )
         mean_energy = float(np.mean([row["mean_energy"] for row in epoch_rows]))
         best_energy = float(np.min([row["best_energy"] for row in epoch_rows]))
         loss = float(np.mean([row["loss"] for row in epoch_rows]))
+        global_step = epoch * args.steps_per_epoch
+        if wandb_run is not None:
+            wandb_run.log(
+                {
+                    "train/global_step": global_step,
+                    "train/epoch_mean_energy": mean_energy,
+                    "train/epoch_best_energy": best_energy,
+                    "train/epoch_loss": loss,
+                    "train/epoch_instances": len(epoch_rows),
+                    "train/current_train_gfas": len(train_gfas),
+                    "time/training_seconds": time.perf_counter() - started,
+                },
+                step=global_step,
+            )
         checkpoint = checkpoint_payload(
             model,
             optimizer,
@@ -965,6 +1183,15 @@ def main() -> int:
             best_checkpoint.parent.mkdir(parents=True, exist_ok=True)
             torch.save(checkpoint, best_checkpoint)
             print(f"best_checkpoint: {best_checkpoint}\tepoch={epoch}\tbest_energy={best_energy:.12g}")
+            if wandb_run is not None:
+                wandb_run.log(
+                    {
+                        "train/global_step": global_step,
+                        "checkpoint/best_energy": best_energy,
+                        "checkpoint/best_epoch": epoch,
+                    },
+                    step=global_step,
+                )
         if args.checkpoint_every > 0 and (epoch == start_epoch or epoch % args.checkpoint_every == 0):
             latest_checkpoint.parent.mkdir(parents=True, exist_ok=True)
             torch.save(checkpoint, latest_checkpoint)
@@ -974,6 +1201,17 @@ def main() -> int:
                 print(f"epoch_checkpoint: {epoch_checkpoint}\tepoch={epoch}")
         if args.validate_every > 0 and test_gfas and (epoch == start_epoch or epoch % args.validate_every == 0):
             val_scores = validation_score(model, test_gfas, args, device, epoch=epoch)
+            if wandb_run is not None and val_scores is not None:
+                val_payload = {
+                    "train/global_step": global_step,
+                    "val/mean_energy": val_scores["mean_energy"],
+                    "val/objective": val_scores["objective"],
+                    "val/instances": min(len(test_gfas), args.validate_limit) if args.validate_limit > 0 else len(test_gfas),
+                    "val/epoch": epoch,
+                }
+                if "mean_gap_to_aco" in val_scores:
+                    val_payload["val/mean_gap_to_aco"] = val_scores["mean_gap_to_aco"]
+                wandb_run.log(val_payload, step=global_step)
             if val_scores is not None and val_scores["objective"] < best_val_energy:
                 best_val_energy = val_scores["objective"]
                 val_checkpoint = checkpoint_payload(
@@ -995,6 +1233,15 @@ def main() -> int:
                     f"val_objective={val_scores['objective']:.12g}\t"
                     f"objective_name={args.validation_objective}"
                 )
+                if wandb_run is not None:
+                    wandb_run.log(
+                        {
+                            "train/global_step": global_step,
+                            "checkpoint/val_best_objective": val_scores["objective"],
+                            "checkpoint/val_best_epoch": epoch,
+                        },
+                        step=global_step,
+                    )
         if epoch == start_epoch or epoch % max(1, args.epochs // 10) == 0:
             shown = Path(epoch_rows[-1]["gfa"]).name
             print(f"{epoch}\t{shown}\t{mean_energy:.12g}\t{best_energy:.12g}\t{loss:.6g}")
@@ -1033,6 +1280,16 @@ def main() -> int:
     if args.checkpoint_every > 0:
         print(f"latest_checkpoint: {latest_checkpoint}")
     print(f"training_seconds: {time.perf_counter() - started:.3f}")
+    if wandb_run is not None:
+        wandb_run.log(
+            {
+                "train/global_step": args.epochs * args.steps_per_epoch,
+                "time/training_seconds_total": time.perf_counter() - started,
+                "checkpoint/final": str(args.out),
+            },
+            step=args.epochs * args.steps_per_epoch,
+        )
+        wandb_run.finish()
     return 0
 
 

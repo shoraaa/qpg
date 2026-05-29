@@ -14,11 +14,13 @@ paper_pipeline_train_start_seed: 1
 paper_pipeline_val_start_seed: 100001
 paper_pipeline_min_train_instances: 32
 paper_pipeline_val_instances: 32
+paper_pipeline_fresh_epoch_instances: true
 # Keep MG training in the same size regime as the paper benchmark. A 30-segment
 # cap rejected the generated MG population entirely in the 2026-05-29 pilot
 # cache, so it trained/evaluated on a different distribution than the claim.
 paper_pipeline_max_segments: 80
 paper_pipeline_max_horizon: 300
+paper_pipeline_index_horizon: false
 paper_pipeline_generation_attempt_limit: 100
 
 generate_synthetic_train: 0
@@ -29,7 +31,7 @@ penalties: 200,50,1
 alpha_qubo: 1.1
 
 epochs: 10
-instances_per_epoch: 16
+instances_per_epoch: 32
 H: 10
 mini_H: 10
 n_ants: 32
@@ -53,5 +55,9 @@ save_epoch_checkpoints: true
 skip_final_eval: true
 eval_time_limit: 2
 no_aco_eval: false
+
+wandb: true
+wandb_project: qpg-dynaco-mg
+wandb_mode: online
 
 out: results/dynaco_mg/paper_pipeline_mg.pt

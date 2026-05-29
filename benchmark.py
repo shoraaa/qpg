@@ -6,6 +6,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    def tqdm(iterable=None, *args, **kwargs):
+        return iterable if iterable is not None else []
+
 from qpg_dynaco_workflow import (
     BASELINE_SOLVER_FUNCS,
     BASELINE_SOLVERS,
@@ -110,9 +116,9 @@ def main() -> int:
         env["QPG_ASTAR_MAX_EXPANSIONS"] = str(args.max_expansions)
 
     completed = set() if args.force else read_completed(args.out_csv)
-    for gfa in gfas:
+    for gfa in tqdm(gfas, desc="benchmark GFAs", unit="gfa"):
         rows = []
-        for solver in solvers:
+        for solver in tqdm(solvers, desc=f"{gfa.name} solvers", unit="solver", leave=False):
             key = (str(gfa), solver.value)
             if key in completed:
                 print(f"skip\t{gfa}\t{solver.value}")

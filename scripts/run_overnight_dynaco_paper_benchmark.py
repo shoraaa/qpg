@@ -28,6 +28,31 @@ import time
 from collections import Counter, defaultdict
 from statistics import mean
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    class _NullProgress:
+        def __init__(self, iterable=None, *args, **kwargs):
+            self.iterable = iterable
+
+        def __iter__(self):
+            return iter(self.iterable if self.iterable is not None else [])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self, n=1):
+            return None
+
+        def close(self):
+            return None
+
+    def tqdm(iterable=None, *args, **kwargs):
+        return _NullProgress(iterable, *args, **kwargs)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_QUBO_BASELINES = "mqlib,gurobi,beam_search,aco,astar"
@@ -94,10 +119,13 @@ def run_command(command: list[str], *, cwd: Path, env: dict[str, str], log_path:
             bufsize=1,
         )
         assert process.stdout is not None
-        for line in process.stdout:
-            sys.stdout.write(line)
+        while True:
+            chunk = process.stdout.read(1)
+            if not chunk:
+                break
+            sys.stdout.write(chunk)
             sys.stdout.flush()
-            log.write(line)
+            log.write(chunk)
             log.flush()
         return_code = process.wait()
     append_log(log_path, f"# exit={return_code} elapsed_s={time.perf_counter() - started:.3f}")
@@ -517,7 +545,7 @@ def coverage_select_checkpoint(args, model_path: Path, env: dict[str, str], log_
     best_path = model_path
     best_covered = float("-inf")
     selection_root = args.out_dir / "coverage_selection"
-    for index, candidate in enumerate(candidates, start=1):
+    for index, candidate in enumerate(tqdm(candidates, desc="coverage checkpoint selection", unit="ckpt"), start=1):
         candidate_dir = selection_root / f"{index:03d}_{candidate.stem}"
         code = run_command(
             coverage_selection_command(args, candidate, candidate_dir),

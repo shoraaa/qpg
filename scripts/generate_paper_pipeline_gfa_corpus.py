@@ -15,6 +15,19 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    class _NullProgress:
+        def __init__(self, iterable=None, *args, **kwargs):
+            self.iterable = iterable
+
+        def __iter__(self):
+            return iter(self.iterable if self.iterable is not None else [])
+
+    def tqdm(iterable=None, *args, **kwargs):
+        return _NullProgress(iterable, *args, **kwargs)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
@@ -75,9 +88,12 @@ def run_command(command: list[str], *, cwd: Path, env: dict[str, str], log_path:
             bufsize=1,
         )
         assert process.stdout is not None
-        for line in process.stdout:
-            print(line, end="", flush=True)
-            log.write(line)
+        while True:
+            chunk = process.stdout.read(1)
+            if not chunk:
+                break
+            print(chunk, end="", flush=True)
+            log.write(chunk)
             log.flush()
         return int(process.wait())
 
@@ -186,29 +202,33 @@ def main() -> int:
     annotators = split_csv(args.annotators)
 
     if not args.index_only:
-        for annotator in annotators:
+        jobs = [
+            (annotator, seed)
+            for annotator in annotators
+            for seed in range(args.seed_start, args.seed_start + args.seeds)
+        ]
+        for annotator, seed in tqdm(jobs, desc="paper-pipeline seeds", unit="seed"):
             config = config_for(annotator)
-            for seed in range(args.seed_start, args.seed_start + args.seeds):
-                command = [
-                    str(REPO_ROOT / "run_gfa_sim.sh"),
-                    "-s",
-                    str(seed),
-                    "-c",
-                    str(config),
-                    "-a",
-                    annotator,
-                    "--solver",
-                    "aco",
-                    "-p",
-                    f"{annotator}.",
-                    "-n",
-                    str(args.test_sequences),
-                    "--data-only",
-                ]
-                code = run_command(command, cwd=out_dir, env=env, log_path=log_path, execute=args.run)
-                if code != 0:
-                    print(f"failed with exit code {code}: {shell_join(command)}", file=sys.stderr)
-                    return code
+            command = [
+                str(REPO_ROOT / "run_gfa_sim.sh"),
+                "-s",
+                str(seed),
+                "-c",
+                str(config),
+                "-a",
+                annotator,
+                "--solver",
+                "aco",
+                "-p",
+                f"{annotator}.",
+                "-n",
+                str(args.test_sequences),
+                "--data-only",
+            ]
+            code = run_command(command, cwd=out_dir, env=env, log_path=log_path, execute=args.run)
+            if code != 0:
+                print(f"failed with exit code {code}: {shell_join(command)}", file=sys.stderr)
+                return code
 
     rows = collect_rows(out_dir) if args.run or args.index_only else []
     assign_splits(rows, args.train_frac, args.val_frac, args.split_seed)

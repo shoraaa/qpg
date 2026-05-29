@@ -1,0 +1,74 @@
+{
+  "os": "Linux-7.0.10-1-cachyos-x86_64-with-glibc2.43",
+  "python": "CPython 3.14.5",
+  "startedAt": "2026-05-29T15:12:33.129447Z",
+  "args": [
+    "--config",
+    "/home/shora/Research/qpg/configs/dynaco_paper_pipeline_mg.yaml",
+    "--out",
+    "/home/shora/Research/qpg/results/overnight_dynaco_paper/mg_coverage_train_select/dynaco_overnight.pt",
+    "--epochs",
+    "10",
+    "--steps-per-epoch",
+    "32",
+    "--H",
+    "10",
+    "--mini_H",
+    "10",
+    "--n_ants",
+    "32",
+    "--eval-time-limit",
+    "3",
+    "--alpha",
+    "1.0",
+    "--beta",
+    "1.0",
+    "--rho",
+    "0.1",
+    "--gamma",
+    "1.0",
+    "--device",
+    "cuda",
+    "--parallel-traced",
+    "--paper-pipeline-cache-dir",
+    "/home/shora/Research/qpg/results/overnight_dynaco_paper/mg_coverage_train_select/generated/paper_pipeline_cache"
+  ],
+  "program": "/home/shora/Research/qpg/train.py",
+  "codePath": "train.py",
+  "codePathLocal": "train.py",
+  "git": {
+    "remote": "https://github.com/shoraaa/qpg.git",
+    "commit": "1e8a94a3d4cd7e54a1bca20a8012f82bb0346847"
+  },
+  "email": "shoraaa@protonmail.com",
+  "root": "/home/shora/Research/qpg",
+  "host": "shora-pc",
+  "executable": "/home/shora/Research/qpg/.venv/bin/python",
+  "cpu_count": 10,
+  "cpu_count_logical": 16,
+  "gpu": "AMD Radeon RX 6800",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "995386658816",
+      "used": "754270244864"
+    }
+  },
+  "memory": {
+    "total": "33472761856"
+  },
+  "gpu_amd": [
+    {
+      "id": "0",
+      "uniqueId": "0x29c544c06137b302",
+      "vbiosVersion": "113-D4140XL-YT",
+      "performanceLevel": "auto",
+      "maxPower": "203.0",
+      "series": "AMD Radeon RX 6800",
+      "model": "0x73bf",
+      "vendor": "Advanced Micro Devices, Inc. [AMD/ATI]",
+      "sku": "D4140XL"
+    }
+  ],
+  "writerId": "hx34vdrjsu9lqz32o8ubax7sqizwsbqa"
+}

@@ -1,0 +1,261 @@
+_wandb:
+    value:
+        cli_version: 0.27.0
+        e:
+            77rpfbybc284xldnb42tkfkzbyo062xl:
+                args:
+                    - --config
+                    - /home/shora/Research/qpg/configs/dynaco_paper_pipeline_mg.yaml
+                    - --out
+                    - /home/shora/Research/qpg/results/overnight_dynaco_paper/mg_coverage_train_select/dynaco_overnight.pt
+                    - --epochs
+                    - "10"
+                    - --steps-per-epoch
+                    - "16"
+                    - --H
+                    - "10"
+                    - --mini_H
+                    - "10"
+                    - --n_ants
+                    - "32"
+                    - --eval-time-limit
+                    - "3"
+                    - --alpha
+                    - "1.0"
+                    - --beta
+                    - "1.0"
+                    - --rho
+                    - "0.1"
+                    - --gamma
+                    - "1.0"
+                    - --device
+                    - cuda
+                    - --parallel-traced
+                    - --paper-pipeline-cache-dir
+                    - /home/shora/Research/qpg/results/overnight_dynaco_paper/mg_coverage_train_select/generated/paper_pipeline_cache
+                codePath: train.py
+                codePathLocal: train.py
+                cpu_count: 10
+                cpu_count_logical: 16
+                disk:
+                    /:
+                        total: "995386658816"
+                        used: "754263252992"
+                email: shoraaa@protonmail.com
+                executable: /home/shora/Research/qpg/.venv/bin/python
+                git:
+                    commit: 1e8a94a3d4cd7e54a1bca20a8012f82bb0346847
+                    remote: https://github.com/shoraaa/qpg.git
+                gpu: AMD Radeon RX 6800
+                gpu_amd:
+                    - id: "0"
+                      maxPower: "203.0"
+                      model: "0x73bf"
+                      performanceLevel: auto
+                      series: AMD Radeon RX 6800
+                      sku: D4140XL
+                      uniqueId: "0x29c544c06137b302"
+                      vbiosVersion: 113-D4140XL-YT
+                      vendor: Advanced Micro Devices, Inc. [AMD/ATI]
+                gpu_count: 1
+                host: shora-pc
+                memory:
+                    total: "33472761856"
+                os: Linux-7.0.10-1-cachyos-x86_64-with-glibc2.43
+                program: /home/shora/Research/qpg/train.py
+                python: CPython 3.14.5
+                root: /home/shora/Research/qpg
+                startedAt: "2026-05-29T15:11:29.948343Z"
+                writerId: 77rpfbybc284xldnb42tkfkzbyo062xl
+        m:
+            - "1": train/global_step
+              "6":
+                - 3
+              "7": []
+            - "2": train/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+            - "2": val/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+            - "2": checkpoint/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+        python_version: 3.14.5
+        t:
+            "1":
+                - 1
+            "2":
+                - 1
+            "3":
+                - 7
+                - 13
+                - 16
+            "4": 3.14.5
+            "5": 0.27.0
+            "12": 0.27.0
+            "13": linux-x86_64
+H:
+    value: 10
+aco_alpha:
+    value: 1
+aco_beta:
+    value: 1
+alpha:
+    value: 1
+alpha_qubo:
+    value: 1.1
+ants:
+    value: 32
+beta:
+    value: 1
+checkpoint_every:
+    value: 1
+config:
+    value: /home/shora/Research/qpg/configs/dynaco_paper_pipeline_mg.yaml
+copy_numbers:
+    value: paper
+depth:
+    value: 4
+device:
+    value: cuda
+elite_frac:
+    value: 0.25
+epochs:
+    value: 10
+eval_ants:
+    value: 32
+eval_min_iterations:
+    value: 100
+eval_time_limit:
+    value: 3
+evaporation:
+    value: 0.1
+gamma:
+    value: 1
+generate_synthetic_test:
+    value: 0
+generate_synthetic_train:
+    value: 0
+grad_clip:
+    value: 1
+instances_per_epoch:
+    value: 32
+lr:
+    value: 0.0005
+mini_H:
+    value: 10
+mini_h:
+    value: 10
+n_ants:
+    value: 32
+no_aco_eval:
+    value: false
+online_steps:
+    value: 10
+out:
+    value: /home/shora/Research/qpg/results/overnight_dynaco_paper/mg_coverage_train_select/dynaco_overnight.pt
+paper_pipeline_annotators:
+    value: mg
+paper_pipeline_cache_dir:
+    value: /home/shora/Research/qpg/results/overnight_dynaco_paper/mg_coverage_train_select/generated/paper_pipeline_cache
+paper_pipeline_fresh_epoch_instances:
+    value: true
+paper_pipeline_generation_attempt_limit:
+    value: 100
+paper_pipeline_index_horizon:
+    value: false
+paper_pipeline_max_horizon:
+    value: 300
+paper_pipeline_max_segments:
+    value: 80
+paper_pipeline_min_train_instances:
+    value: 32
+paper_pipeline_shred_depth:
+    value: 30
+paper_pipeline_test_sequences:
+    value: 5
+paper_pipeline_train:
+    value: true
+paper_pipeline_train_start_seed:
+    value: 1
+paper_pipeline_val_instances:
+    value: 32
+paper_pipeline_val_start_seed:
+    value: 100001
+paper_pipeline_validation:
+    value: true
+parallel_traced:
+    value: true
+penalties:
+    value: 200,50,1
+resume:
+    value: null
+rho:
+    value: 0.1
+save_epoch_checkpoints:
+    value: true
+seed:
+    value: 1
+skip_final_eval:
+    value: true
+steps_per_epoch:
+    value: 16
+synthetic_bubble_rate:
+    value: 0.35
+synthetic_dir:
+    value: results/dynaco_online/generated
+synthetic_max_length:
+    value: 160
+synthetic_max_segments:
+    value: 10
+synthetic_min_length:
+    value: 40
+synthetic_min_segments:
+    value: 4
+synthetic_orientation_rate:
+    value: 0.15
+synthetic_seed:
+    value: 1000
+synthetic_shortcuts:
+    value: 2
+test_gfas:
+    value: null
+test_glob:
+    value: null
+test_list:
+    value: null
+threads:
+    value: null
+train_gfas:
+    value: null
+train_glob:
+    value: null
+train_list:
+    value: null
+units:
+    value: 64
+validate_every:
+    value: 1
+validate_limit:
+    value: 16
+validation_objective:
+    value: gap_to_aco
+wandb:
+    value: true
+wandb_entity:
+    value: ""
+wandb_mode:
+    value: online
+wandb_project:
+    value: qpg-dynaco-mg
+wandb_run_name:
+    value: ""
+wandb_tags:
+    value: ""

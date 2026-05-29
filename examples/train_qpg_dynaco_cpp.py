@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -45,6 +46,7 @@ def parse_copy_numbers(value: str | None, gfa: Path) -> list[float] | None:
         return [1.0] * count_segments(gfa)
     if value in {"paper", "paper_int", "paper_float"}:
         mode = "f" if value == "paper_float" else "i"
+        timeout = float(os.environ.get("QPG_COPY_NUMBER_TIMEOUT", "30"))
         output = subprocess.check_output(
             [
                 str(REPO_ROOT / "tag_gfa_copy_numbers.pl"),
@@ -56,6 +58,7 @@ def parse_copy_numbers(value: str | None, gfa: Path) -> list[float] | None:
                 str(gfa),
             ],
             text=True,
+            timeout=timeout,
         ).strip()
         return [float(item) for item in output.split(",") if item]
     return [float(item) for item in value.split(",") if item]

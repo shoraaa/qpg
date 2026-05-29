@@ -6,6 +6,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    def tqdm(iterable=None, *args, **kwargs):
+        return iterable if iterable is not None else []
+
 from qpg_dynaco_workflow import (
     DEFAULT_DATASET_GLOBS,
     NEURAL_SOLVER_FUNCS,
@@ -125,7 +131,7 @@ def main() -> int:
 
     completed = set() if args.force else read_completed(args.out_csv)
     rows = []
-    for gfa in gfas:
+    for gfa in tqdm(gfas, desc="neural eval GFAs", unit="gfa"):
         key = (str(gfa), Solver.NEURAL_ACO.value)
         if key in completed:
             print(f"skip\t{gfa}\tneural_aco")
