@@ -83,63 +83,60 @@ while (<>) {
     }
 }
 
-# Find simple cycles.  This isn't particularly fast on large graphs.
-# TODO: look at Johnson's algorithm, or rewrite-in / callout to Python which
-# has an implementation of this in networkx:
-#
-# my $code = "import networkx as nx\nG=nx.DiGraph()\n";
-# $code .= "G.add_nodes_from([\"" . join("\",\"",@node_order) . "\"])\n";
-# my @edge_str;
-# foreach (@edge) {
-#     m/^L\s+(\S+)\s+(.)\s+(\S+)\s+(.)/;
-#     push(@edge_str, "(\"".$1."\",\"".$3."\")");
-# }
-# $code .= "G.add_edges_from([" . join(",", @edge_str) . "])\n";
-# $code .= "print(list(nx.simple_cycles(G)))\n";
-# my $simple_cycles = `python -c '$code'`;
-# $simple_cycles =~ tr/[],'/ /;
-# $simple_cycles =~ s/^\s+//;
-# foreach (split(/\s+/,$simple_cycles)) {
-#     $loop{$_}=1;
-# }
-
-sub find_all_cycles {
-    my @all_cycles;
-
-    for my $start (@node_order) {
-        my @stack = ([$start, [$start]]);
-        while (@stack) {
-            my ($node, $path) = @{pop @stack};
-	    my @next;
-
-	    # Do we also need to do edge_in here, or take into account orientation?
-	    foreach (@{$edge_out{$node}}) {
-		$edge[$_] =~ m/^L\s+(\S+)\s+(.)\s+(\S+)\s+(.)/;
-		if ($1 eq $node) {
-		    push(@next, $3);
-		} else {
-		    push(@next, $1);
-		}
-	    }
-
-            for my $neighbour (sort @next) {
-                if ($neighbour eq $path->[0] && @$path > 1) {
-                    push @all_cycles, [@$path];
-                } elsif (!grep { $_ eq $neighbour } @$path[1..$#$path]) {
-                    push @stack, [$neighbour, [@$path, $neighbour]];
-                }
-            }
-        }
+my %loop;
+my %adj;
+foreach my $node (@node_order) {
+    foreach (@{$edge_out{$node} || []}) {
+	$edge[$_] =~ m/^L\s+(\S+)\s+(.)\s+(\S+)\s+(.)/;
+	my $next = ($1 eq $node) ? $3 : $1;
+	push(@{$adj{$node}}, $next);
     }
-    return @all_cycles;
 }
 
-my @all_cycles = find_all_cycles();
-my %loop;
-foreach my $cycle (@all_cycles) {
-    foreach (@$cycle) {
-	$loop{$_}=1;
+my $tarjan_index = 0;
+my @tarjan_stack;
+my %tarjan_on_stack;
+my %tarjan_index_of;
+my %tarjan_lowlink;
+
+sub strongconnect {
+    my ($v) = @_;
+    $tarjan_index_of{$v} = $tarjan_index;
+    $tarjan_lowlink{$v} = $tarjan_index;
+    $tarjan_index++;
+    push(@tarjan_stack, $v);
+    $tarjan_on_stack{$v} = 1;
+
+    foreach my $w (@{$adj{$v} || []}) {
+	if (!exists($tarjan_index_of{$w})) {
+	    strongconnect($w);
+	    $tarjan_lowlink{$v} = $tarjan_lowlink{$w}
+		if $tarjan_lowlink{$w} < $tarjan_lowlink{$v};
+	} elsif ($tarjan_on_stack{$w}) {
+	    $tarjan_lowlink{$v} = $tarjan_index_of{$w}
+		if $tarjan_index_of{$w} < $tarjan_lowlink{$v};
+	}
     }
+
+    if ($tarjan_lowlink{$v} == $tarjan_index_of{$v}) {
+	my @component;
+	while (@tarjan_stack) {
+	    my $w = pop(@tarjan_stack);
+	    $tarjan_on_stack{$w} = 0;
+	    push(@component, $w);
+	    last if $w eq $v;
+	}
+	if (@component > 1) {
+	    foreach my $n (@component) {
+		$loop{$n}=1;
+	    }
+	}
+    }
+}
+
+foreach my $node (@node_order) {
+    strongconnect($node) if !exists($tarjan_index_of{$node});
+    $loop{$node}=1 if exists($self_loop{$node});
 }
 if ($verbose) {
     print "In loops:";

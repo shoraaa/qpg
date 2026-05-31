@@ -216,12 +216,21 @@ else
 #    ' "$gfa_filepath" "$const1" "$const2")
 
     # Negative const2 is request for floating point output
-    if [ $const2 -lt 0 ]
+    copy_number_timeout=${QPG_COPY_NUMBER_TIMEOUT:-30}
+    if [[ "$const2" == -* ]]
     then
-	const2=`expr 0 - $const2`
-	copy_numbers=$(tag_gfa_copy_numbers.pl -c 0.45 --mode=f --offset=$const1 -d=$const2 $gfa_filepath)
+	const2=${const2#-}
+	if ! copy_numbers=$(timeout "$copy_number_timeout" tag_gfa_copy_numbers.pl -c 0.45 --mode=f --offset="$const1" -d="$const2" "$gfa_filepath")
+	then
+	    echo "copy-number tagging failed or timed out after ${copy_number_timeout}s for $gfa_filepath" 1>&2
+	    exit 124
+	fi
     else
-	copy_numbers=$(tag_gfa_copy_numbers.pl -c 0.45 --mode=i --offset=$const1 -d=$const2 $gfa_filepath)
+	if ! copy_numbers=$(timeout "$copy_number_timeout" tag_gfa_copy_numbers.pl -c 0.45 --mode=i --offset="$const1" -d="$const2" "$gfa_filepath")
+	then
+	    echo "copy-number tagging failed or timed out after ${copy_number_timeout}s for $gfa_filepath" 1>&2
+	    exit 124
+	fi
     fi
 
     echo "COPY_NUMBERS=$copy_numbers"

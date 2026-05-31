@@ -232,6 +232,124 @@ def _path_result_from_choices(
     return solution, energy, path
 
 
+def _path_result_from_choices_with_cost(
+    choices: tuple[int, ...] | list[int] | np.ndarray,
+    cost: float,
+    qubo_description: QuboDescription,
+) -> tuple[np.ndarray, float, list]:
+    states_per_time = _states_per_time(qubo_description)
+    solution = _one_hot_solution(choices, states_per_time)
+    path = sample_list_to_path(
+        solution,
+        qubo_description.graph,
+        qubo_description.T,
+        qubo_description.V,
+    )
+    return solution, float(cost), path
+
+
+def _walk_coverage_proxy_costs(
+    choices_batch: np.ndarray,
+    weights: list[float] | np.ndarray,
+    lengths: list[float] | np.ndarray,
+    end_index: int,
+    *,
+    trace_starts: np.ndarray | None = None,
+    trace_edges: np.ndarray | None = None,
+    offsets: np.ndarray | None = None,
+    targets: np.ndarray | None = None,
+) -> np.ndarray:
+    """Parsimonious structural feasible-walk cost used by ACO/prior training.
+
+    The available GFA annotations provide node-copy targets but not read-pair
+    or haplotype labels. The edge term therefore acts as a conservative
+    structural surrogate by discouraging repeated traversal of an oriented edge
+    beyond the copy support implied by its incident nodes.
+    """
+    weights = np.asarray(weights, dtype=np.float32)
+    lengths = np.asarray(lengths, dtype=np.float32)
+    target_copy = np.maximum(weights, 0.0)
+    target_bases = float(np.sum(np.minimum(target_copy, 1.0) * lengths))
+    if not np.isfinite(target_bases) or target_bases <= 0.0:
+        target_bases = float(np.sum(lengths)) if float(np.sum(lengths)) > 0.0 else 1.0
+
+    costs = np.zeros(choices_batch.shape[0], dtype=np.float32)
+    for ant_index, choices in enumerate(choices_batch):
+        counts = np.zeros_like(weights, dtype=np.float32)
+        first_end = None
+        for step, target in enumerate(choices):
+            target = int(target)
+            if target == end_index:
+                if first_end is None:
+                    first_end = step
+                continue
+            node_index = target // 2
+            if 0 <= node_index < len(counts):
+                counts[node_index] += 1.0
+
+        covered_bases = float(np.sum(np.minimum(counts, target_copy) * lengths))
+        high_conf_target = np.minimum(target_copy, 1.0)
+        high_conf_covered_bases = float(np.sum(np.minimum(counts, high_conf_target) * lengths))
+        overcopy_bases = float(np.sum(np.maximum(0.0, counts - target_copy) * lengths))
+        undercopy_bases = float(np.sum(np.maximum(0.0, target_copy - counts) * lengths))
+        low_conf_used_bases = float(np.sum(((counts > 0.0) & (target_copy < 0.5)).astype(np.float32) * lengths))
+        used_bases = float(np.sum((counts > 0.0).astype(np.float32) * lengths))
+        redundant_bases = max(0.0, used_bases - high_conf_covered_bases)
+        end_step = choices_batch.shape[1] if first_end is None else first_end
+        active_step_frac = float(end_step) / max(1.0, float(choices_batch.shape[1]))
+
+        covered_frac = covered_bases / target_bases
+        high_conf_covered_frac = high_conf_covered_bases / target_bases
+        overcopy_frac = overcopy_bases / target_bases
+        undercopy_frac = undercopy_bases / target_bases
+        low_conf_used_frac = low_conf_used_bases / target_bases
+        redundant_frac = redundant_bases / target_bases
+
+        edge_overuse_frac = 0.0
+        if trace_starts is not None and trace_edges is not None and offsets is not None and targets is not None:
+            offsets_np = np.asarray(offsets, dtype=np.int32)
+            targets_np = np.asarray(targets, dtype=np.int32)
+            begin = int(trace_starts[ant_index])
+            end = int(trace_starts[ant_index + 1])
+            edge_counts: dict[int, int] = {}
+            edge_supports: dict[int, float] = {}
+            active_edges = 0
+            for edge_id in np.asarray(trace_edges[begin:end], dtype=np.int32):
+                edge_id = int(edge_id)
+                target = int(targets_np[edge_id])
+                if target == end_index:
+                    continue
+                source = int(np.searchsorted(offsets_np, edge_id, side="right") - 1)
+                if source == end_index:
+                    continue
+                source_node = source // 2
+                target_node = target // 2
+                if not (0 <= source_node < len(target_copy) and 0 <= target_node < len(target_copy)):
+                    continue
+                edge_counts[edge_id] = edge_counts.get(edge_id, 0) + 1
+                edge_supports[edge_id] = max(0.0, min(float(target_copy[source_node]), float(target_copy[target_node])))
+                active_edges += 1
+            if active_edges:
+                edge_excess = 0.0
+                for edge_id, count in edge_counts.items():
+                    edge_support = float(edge_supports.get(edge_id, 0.0))
+                    edge_excess += max(0.0, float(count) - edge_support)
+                edge_overuse_frac = edge_excess / float(active_edges)
+
+        reward = (
+            0.70 * covered_frac
+            + 0.30 * high_conf_covered_frac
+            - 0.85 * overcopy_frac
+            - 0.30 * undercopy_frac
+            - 0.35 * redundant_frac
+            - 0.25 * low_conf_used_frac
+            - 0.20 * active_step_frac
+            - 0.50 * edge_overuse_frac
+        )
+        costs[ant_index] = -float(reward)
+    return costs
+
+
 def _greedy_complete_prefix(
     prefix: tuple[int, ...],
     qubo_description: QuboDescription,
@@ -662,52 +780,86 @@ def beam_search_sample_qubo(qubo_description: QuboDescription):
 
 def aco_sample_qubo(qubo_description: QuboDescription):
     """Ant colony construction over legal graph walks."""
-    successors = _successor_indices(qubo_description)
+    from qubo_solvers.oriented_tangle import qpg_aco_cpp
+
     ant_count = int(os.environ.get("QPG_ACO_ANTS", "64"))
     evaporation = float(os.environ.get("QPG_ACO_EVAPORATION", "0.2"))
     alpha = float(os.environ.get("QPG_ACO_ALPHA", "1.0"))
     beta = float(os.environ.get("QPG_ACO_BETA", "2.0"))
-    min_iterations = int(os.environ.get("QPG_ACO_MIN_ITERATIONS", "4"))
-    initial_pheromone = {
-        (source, target): 1.0
-        for source, targets in successors.items()
-        for target in targets
-    }
+    min_iterations = int(os.environ.get("QPG_ACO_MIN_ITERATIONS", "1"))
+    parallel_traced = os.environ.get("QPG_ACO_PARALLEL_TRACED", "1").lower() not in {"0", "false", "no"}
+    threads = os.environ.get("QPG_ACO_THREADS")
+    if threads:
+        qpg_aco_cpp.set_num_threads(int(threads))
+    offsets, targets, heuristic, prior, start_source = _aco_static_edge_arrays(qubo_description)
+    weights, lengths = _node_weights_and_lengths(qubo_description)
+    weights_array = np.asarray(weights, dtype=np.float32)
+    lengths_array = np.asarray(lengths, dtype=np.float32)
+    initial_pheromone = np.ones_like(heuristic, dtype=np.float32)
+    states_per_time = _states_per_time(qubo_description)
+    end_index = qubo_description.V * 2
+    seed = int(os.environ.get("QPG_ACO_SEED", "1"))
 
     paths = {}
     for time_limit in qubo_description.time_limits:
         paths[time_limit] = []
         deadline = max(time_limit, 1)
         for job_index in range(qubo_description.jobs):
-            pheromone = dict(initial_pheromone)
+            pheromone = initial_pheromone.copy()
             started_at = time.monotonic()
             best = None
             iterations = 0
             while iterations < min_iterations or time.monotonic() - started_at < deadline:
-                iteration = []
-                for _ant in range(ant_count):
-                    choices = _random_residual_choices(
+                batch = qpg_aco_cpp.sample_batch_traces(
+                    offsets,
+                    targets,
+                    pheromone,
+                    heuristic,
+                    prior,
+                    weights_array,
+                    lengths_array,
+                    qubo_description.T,
+                    ant_count,
+                    start_source,
+                    end_index,
+                    alpha,
+                    beta,
+                    0.0,
+                    seed + job_index * 1000003 + iterations,
+                    parallel_traced,
+                )
+                choices_batch = np.asarray(batch["choices"], dtype=np.int32)
+                trace_starts = np.asarray(batch["trace_starts"], dtype=np.int32)
+                trace_edges = np.asarray(batch["trace_chosen_edges"], dtype=np.int32)
+                costs = _walk_coverage_proxy_costs(
+                    choices_batch,
+                    weights,
+                    lengths,
+                    end_index,
+                    trace_starts=trace_starts,
+                    trace_edges=trace_edges,
+                    offsets=offsets,
+                    targets=targets,
+                )
+                best_ant = int(np.argmin(costs))
+                if best is None or float(costs[best_ant]) < best[1]:
+                    choices = tuple(int(x) for x in choices_batch[best_ant])
+                    best = _path_result_from_choices_with_cost(
+                        choices,
+                        float(costs[best_ant]),
                         qubo_description,
-                        successors,
-                        pheromone=pheromone,
-                        alpha=alpha,
-                        beta=beta,
                     )
-                    result = _path_result_from_choices(choices, qubo_description)
-                    iteration.append((choices, result))
-                    if best is None or result[1] < best[1]:
-                        best = result
 
-                for edge in list(pheromone):
-                    pheromone[edge] *= 1.0 - evaporation
-                    if pheromone[edge] < 1e-6:
-                        pheromone[edge] = 1e-6
-
-                worst_energy = max(result[1] for _, result in iteration)
-                for choices, result in heapq.nsmallest(max(1, ant_count // 4), iteration, key=lambda item: item[1][1]):
-                    deposit = (worst_energy - result[1] + 1.0) / (abs(worst_energy) + 1.0)
-                    for source, target in zip(choices[:-1], choices[1:]):
-                        pheromone[(source, target)] = pheromone.get((source, target), 1.0) + deposit
+                pheromone *= (1.0 - evaporation)
+                np.maximum(pheromone, 1e-6, out=pheromone)
+                worst_cost = float(costs.max())
+                elite_indices = np.argsort(costs)[: max(1, ant_count // 4)]
+                for ant_index in elite_indices:
+                    deposit = (worst_cost - float(costs[ant_index]) + 1.0) / (abs(worst_cost) + 1.0)
+                    begin = int(trace_starts[ant_index])
+                    end = int(trace_starts[ant_index + 1])
+                    for edge_id in trace_edges[begin:end]:
+                        pheromone[int(edge_id)] += deposit
 
                 iterations += 1
                 if time.monotonic() - started_at >= deadline and iterations >= min_iterations:
@@ -734,7 +886,7 @@ def neural_aco_sample_qubo(qubo_description: QuboDescription):
     alpha = float(os.environ.get("QPG_ACO_ALPHA", "1.0"))
     beta = float(os.environ.get("QPG_ACO_BETA", "2.0"))
     gamma = float(os.environ.get("QPG_ACO_GAMMA", "1.0"))
-    min_iterations = int(os.environ.get("QPG_ACO_MIN_ITERATIONS", "4"))
+    min_iterations = int(os.environ.get("QPG_ACO_MIN_ITERATIONS", "1"))
     parallel_traced = os.environ.get("QPG_ACO_PARALLEL_TRACED", "1").lower() not in {"0", "false", "no"}
     threads = os.environ.get("QPG_ACO_THREADS")
     if threads:
@@ -782,7 +934,7 @@ def neural_aco_sample_qubo(qubo_description: QuboDescription):
             best = None
             iterations = 0
             while iterations < min_iterations or time.monotonic() - started_at < deadline:
-                batch = qpg_aco_cpp.sample_batch(
+                batch = qpg_aco_cpp.sample_batch_traces(
                     offsets,
                     targets,
                     pheromone,
@@ -790,9 +942,6 @@ def neural_aco_sample_qubo(qubo_description: QuboDescription):
                     prior,
                     weights_array,
                     lengths_array,
-                    np.asarray(qubo_description.Q, dtype=np.float32),
-                    float(qubo_description.offset),
-                    states_per_time,
                     qubo_description.T,
                     ant_count,
                     start_source,
@@ -804,21 +953,33 @@ def neural_aco_sample_qubo(qubo_description: QuboDescription):
                     parallel_traced,
                 )
                 choices_batch = np.asarray(batch["choices"], dtype=np.int32)
-                energies = np.asarray(batch["energies"], dtype=np.float32)
-                for ant_index in range(ant_count):
-                    choices = tuple(int(x) for x in choices_batch[ant_index])
-                    result = _path_result_from_choices(choices, qubo_description)
-                    if best is None or result[1] < best[1]:
-                        best = result
+                trace_starts = np.asarray(batch["trace_starts"], dtype=np.int32)
+                trace_edges = np.asarray(batch["trace_chosen_edges"], dtype=np.int32)
+                costs = _walk_coverage_proxy_costs(
+                    choices_batch,
+                    weights,
+                    lengths,
+                    end_index,
+                    trace_starts=trace_starts,
+                    trace_edges=trace_edges,
+                    offsets=offsets,
+                    targets=targets,
+                )
+                best_ant = int(np.argmin(costs))
+                if best is None or float(costs[best_ant]) < best[1]:
+                    choices = tuple(int(x) for x in choices_batch[best_ant])
+                    best = _path_result_from_choices_with_cost(
+                        choices,
+                        float(costs[best_ant]),
+                        qubo_description,
+                    )
 
                 pheromone *= (1.0 - evaporation)
                 np.maximum(pheromone, 1e-6, out=pheromone)
-                worst_energy = float(energies.max())
-                elite_indices = np.argsort(energies)[: max(1, ant_count // 4)]
-                trace_starts = np.asarray(batch["trace_starts"], dtype=np.int32)
-                trace_edges = np.asarray(batch["trace_chosen_edges"], dtype=np.int32)
+                worst_cost = float(costs.max())
+                elite_indices = np.argsort(costs)[: max(1, ant_count // 4)]
                 for ant_index in elite_indices:
-                    deposit = (worst_energy - float(energies[ant_index]) + 1.0) / (abs(worst_energy) + 1.0)
+                    deposit = (worst_cost - float(costs[ant_index]) + 1.0) / (abs(worst_cost) + 1.0)
                     begin = int(trace_starts[ant_index])
                     end = int(trace_starts[ant_index + 1])
                     for edge_id in trace_edges[begin:end]:

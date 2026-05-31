@@ -16,6 +16,7 @@ help() {
     echo "       --trim-edges        Use trim_edges.pl"
     echo "       --pathfinder        Use pathfinder to get subgraphs"
     echo "       --data-only         Stop after generating annotated query GFAs"
+    echo "       --from-data  DIR    Reuse an existing data-only run directory"
     echo ""
     echo "The old API is still supported with fixed argument order."
 }
@@ -31,6 +32,7 @@ edge2node=0
 trimedges=0
 pathfinder_copy_numbers=0
 data_only=0
+from_data=""
 
 qubo_opts=""
 while true
@@ -133,6 +135,11 @@ do
             shift 1
             continue
             ;;
+	'--from-data')
+            from_data=$2
+            shift 2
+            continue
+            ;;
 
 	'--neural-model')
 	    qubo_opts="$qubo_opts --neural-model $2"
@@ -193,12 +200,22 @@ echo "TrimEdges:$trim_args"
 echo "PathfinderGraph:$pathfinder_graph"
 echo "Pathfinder:$pathfinder_copy_numbers"
 echo "DataOnly:$data_only"
+echo "FromData:$from_data"
 echo ""
 
 out_dir=$(printf "$prefix%05d" "$seed")
 echo "$out_dir"
 rm -rf "$out_dir" 2>/dev/null
-mkdir "$out_dir"
+mkdir -p "$out_dir"
+
+if [ -n "$from_data" ]; then
+    from_data=$(readlink -f "$from_data")
+    if [ ! -d "$from_data" ]; then
+        echo "Missing --from-data directory: $from_data" 1>&2
+        exit 2
+    fi
+    cp -a "$from_data"/. "$out_dir"/
+fi
 
 cd "$out_dir" || exit 1
 
@@ -208,8 +225,12 @@ cd "$out_dir" || exit 1
 #    pop.gfa
 #    fofn.test
 #    fofn.train
-#run_sim_create_gfa.sh "$seed" "$num_training"
-run_sim_create_gfa${GFA_CREATE}.sh "$seed" "$num_training"
+if [ -z "$from_data" ]; then
+    #run_sim_create_gfa.sh "$seed" "$num_training"
+    run_sim_create_gfa${GFA_CREATE}.sh "$seed" "$num_training"
+else
+    echo "=== Reusing generated data from $from_data"
+fi
 
 # Foreach test genome, not used in pangenome creation, find path and eval
 for i in $(sort fofn.test)
@@ -219,8 +240,12 @@ do
     #     $i.gfa (primary output; annotated pop.gfa)
     #     $i.shred.fa
     #     $i.mg
-    echo "Annotate: run_sim_add_gfa_weights_${annotate}.sh pop.gfa $i"
-    eval run_sim_add_gfa_weights_${annotate}.sh pop.gfa "$i"
+    if [ -z "$from_data" ]; then
+        echo "Annotate: run_sim_add_gfa_weights_${annotate}.sh pop.gfa $i"
+        eval run_sim_add_gfa_weights_${annotate}.sh pop.gfa "$i"
+    else
+        echo "Annotate: reusing $i.gfa from $from_data"
+    fi
 
     if [ "$data_only" -eq 1 ]; then
         echo "Data-only: generated $i.gfa; skipping solver and evaluation"
@@ -257,6 +282,11 @@ do
 	echo "run_sim_solver_qubo.sh -f "$gfa_file_name" -s "$solver" -q "$i" -t "$time_limits" -j "$num_jobs" -a "$annotate"  $qubo_opts"
         eval run_sim_solver_qubo.sh -f "$gfa_file_name" -s "$solver" -q "$i" \
         -t "$time_limits" -j "$num_jobs" -a "$annotate"  $qubo_opts
+        code=$?
+        if [ "$code" -ne 0 ]; then
+            echo "Solver failed for $i with exit code $code" 1>&2
+            exit "$code"
+        fi
         echo "Finished sim solver qubo"
     else
         time_limits=0

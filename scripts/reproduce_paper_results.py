@@ -177,6 +177,79 @@ def paper_table2_command(args) -> list[str]:
     ]
 
 
+def paired_data_command(args, seed: int, annotator: str, out_prefix: str) -> list[str]:
+    return [
+        str(REPO_ROOT / "run_gfa_sim.sh"),
+        "-s",
+        str(seed),
+        "-c",
+        str(REPO_ROOT / f"config_illumina_{annotator}.sh"),
+        "-a",
+        annotator,
+        "--solver",
+        "aco",
+        "-p",
+        out_prefix,
+        "-n",
+        str(args.test_sequences),
+        "--data-only",
+    ]
+
+
+def paired_solver_command(args, seed: int, annotator: str, solver: str, data_dir: Path) -> list[str]:
+    command = [
+        str(REPO_ROOT / "run_gfa_sim.sh"),
+        "-s",
+        str(seed),
+        "-c",
+        str(REPO_ROOT / f"config_illumina_{annotator}.sh"),
+        "-a",
+        annotator,
+        "--solver",
+        solver,
+        "-p",
+        f"{solver}.{annotator}.",
+        "-t",
+        args.time_limits,
+        "-j",
+        str(args.jobs),
+        "-n",
+        str(args.test_sequences),
+        "--from-data",
+        str(data_dir),
+    ]
+    if args.pathfinder_graph:
+        command.append("--pathfinder_graph")
+    return command
+
+
+def paired_full_commands(args, out_dir: Path) -> list[list[str]]:
+    commands: list[list[str]] = []
+    data_root = out_dir / "paired_data"
+    for seed in range(1, args.seeds + 1):
+        for annotator in split_csv(args.annotators):
+            prefix = str(data_root / f"data.{annotator}.")
+            commands.append(paired_data_command(args, seed, annotator, prefix))
+            data_dir = data_root / f"data.{annotator}.{seed:05d}"
+            for solver in split_csv(args.solvers):
+                commands.append(paired_solver_command(args, seed, annotator, solver, data_dir))
+    commands.extend(
+        [
+            [
+                str(REPO_ROOT / "tangle_resolution_benchmark_stats.sh"),
+                str(args.seeds),
+                args.time_limits,
+                str(args.jobs),
+                str(args.test_sequences),
+                " ".join(split_csv(args.solvers)),
+                "cons",
+            ],
+            parse_stats_command("cons"),
+        ]
+    )
+    return commands
+
+
 def parse_stats_command(data_type: str) -> list[str]:
     return [str(REPO_ROOT / "tangle_resolution_benchmark_parse_stats.sh"), data_type]
 
@@ -210,6 +283,11 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Use Pathfinder subgraphs/copy-number preprocessing for QUBO solvers, matching the paper method text.",
+    )
+    parser.add_argument(
+        "--paired-data",
+        action="store_true",
+        help="Generate each seed/annotator once, then reuse the same annotated GFAs for every solver.",
     )
     parser.add_argument("--shred-depth", type=int, default=30, help="Simulated short-read coverage depth.")
     parser.add_argument("--shuf-random-source", default="/usr/bin/emacs", help="Stable shuf source for train/test split.")
@@ -274,10 +352,13 @@ def main() -> int:
     }
     write_json(out_dir / "manifest.json", manifest)
 
-    commands = [
-        paper_table2_command(args),
-        parse_stats_command("cons"),
-    ]
+    if args.paired_data:
+        commands = paired_full_commands(args, out_dir)
+    else:
+        commands = [
+            paper_table2_command(args),
+            parse_stats_command("cons"),
+        ]
     for command in commands:
         code = run_command(command, cwd=out_dir, env=env, log_path=log_path, execute=args.run)
         if code != 0:

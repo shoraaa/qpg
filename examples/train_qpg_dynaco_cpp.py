@@ -68,7 +68,17 @@ def parse_csv_ints(value: str) -> list[int]:
     return [int(item) for item in value.split(",") if item]
 
 
-def build_prior_tensor(model, graph, description: QuboDescription, offsets, targets, device):
+def build_prior_tensor(
+    model,
+    graph,
+    description: QuboDescription,
+    offsets,
+    targets,
+    device,
+    node_haplotype=None,
+    edge_support=None,
+    link_support=None,
+):
     start_index = description.V * 2 + 1
     tensor = build_qpg_graph_tensor(
         graph,
@@ -76,6 +86,9 @@ def build_prior_tensor(model, graph, description: QuboDescription, offsets, targ
         current_index=start_index,
         depth=0,
         horizon=description.T,
+        node_haplotype=node_haplotype,
+        edge_support=edge_support,
+        link_support=link_support,
         device=device,
     )
     edge_logits = model(tensor)["edge_logits"]

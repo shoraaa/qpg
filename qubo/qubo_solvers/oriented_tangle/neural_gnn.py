@@ -28,8 +28,8 @@ else:
     _TORCH_IMPORT_ERROR = None
 
 
-NODE_FEATURES = 12
-EDGE_FEATURES = 8
+NODE_FEATURES = 14
+EDGE_FEATURES = 12
 GLOBAL_FEATURES = 6
 
 
@@ -87,6 +87,9 @@ def build_qpg_graph_tensor(
     current_index: int | None = None,
     depth: int = 0,
     horizon: int | None = None,
+    node_haplotype: Sequence[float] | None = None,
+    edge_support: Sequence[float] | None = None,
+    link_support: dict[tuple[int, int], float] | None = None,
     device=None,
 ) -> QPGGraphTensor:
     """Build dynamic GNN features for one search prefix.
@@ -103,6 +106,11 @@ def build_qpg_graph_tensor(
     weights = [float(graph.nodes[node_names[2 * i]]["weight"]) for i in range(biological_nodes)]
     lengths = [float(graph.nodes[node_names[2 * i]].get("length", 1.0) or 1.0) for i in range(biological_nodes)]
     counts_list = _as_counts(counts, biological_nodes)
+    haplotypes = list(node_haplotype) if node_haplotype is not None else [math.nan] * biological_nodes
+    if len(haplotypes) != biological_nodes:
+        raise ValueError(f"node_haplotype length {len(haplotypes)} does not match V={biological_nodes}")
+    finite_haplotypes = [float(value) for value in haplotypes if math.isfinite(float(value))]
+    max_haplotype = max([1.0] + [abs(value) for value in finite_haplotypes])
     total_weight = max(sum(max(weight, 0.0) for weight in weights), 1.0)
     max_log_len = max(math.log1p(length) for length in lengths) if lengths else 1.0
     horizon_value = max(float(horizon if horizon is not None else max(int(total_weight), 1)), 1.0)
@@ -122,6 +130,8 @@ def build_qpg_graph_tensor(
         count = counts_list[bio]
         residual = weight - count
         over = max(0.0, count - weight)
+        haplotype = float(haplotypes[bio])
+        has_haplotype = 1.0 if math.isfinite(haplotype) else 0.0
         features.append(
             [
                 weight / total_weight,
@@ -136,6 +146,8 @@ def build_qpg_graph_tensor(
                 1.0 if weight <= 0.0 else 0.0,
                 float(out_degree.get(node, 0)) / max_degree,
                 float(in_degree.get(node, 0)) / max_degree,
+                has_haplotype,
+                haplotype / max_haplotype if has_haplotype else 0.0,
             ]
         )
 
@@ -153,6 +165,8 @@ def build_qpg_graph_tensor(
             1.0,
             0.0,
             1.0,
+            0.0,
+            0.0,
         ]
     )
     features.append(
@@ -169,6 +183,8 @@ def build_qpg_graph_tensor(
             1.0,
             1.0,
             0.0,
+            0.0,
+            0.0,
         ]
     )
 
@@ -182,8 +198,17 @@ def build_qpg_graph_tensor(
     for target_index in range(end_index + 1):
         edge_pairs.append((start_index, target_index))
 
+    edge_support_values = list(edge_support) if edge_support is not None else [math.nan] * len(edge_pairs)
+    if len(edge_support_values) != len(edge_pairs):
+        raise ValueError(f"edge_support length {len(edge_support_values)} does not match edges={len(edge_pairs)}")
+    finite_edge_support = [float(value) for value in edge_support_values if math.isfinite(float(value))]
+    max_edge_support = max([1.0] + finite_edge_support)
+    max_link_support = 1.0
+    if link_support is not None and link_support:
+        max_link_support = max([1.0] + [max(0.0, float(value)) for value in link_support.values()])
+
     edge_features = []
-    for source, target in edge_pairs:
+    for edge_id, (source, target) in enumerate(edge_pairs):
         source_is_end = source == end_index
         target_is_end = target == end_index
         source_is_start = source == start_index
@@ -200,6 +225,20 @@ def build_qpg_graph_tensor(
             src_weight = 0.0
         else:
             src_weight = weights[_biological_index(source)] / total_weight
+        source_haplotype = math.nan
+        target_haplotype = math.nan
+        if not source_is_end and not source_is_start:
+            source_haplotype = float(haplotypes[_biological_index(source)])
+        if not target_is_end:
+            target_haplotype = float(haplotypes[_biological_index(target)])
+        has_hap_pair = math.isfinite(source_haplotype) and math.isfinite(target_haplotype)
+        same_haplotype = 1.0 if has_hap_pair and source_haplotype == target_haplotype else 0.0
+        haplotype_switch = 1.0 if has_hap_pair and source_haplotype != target_haplotype else 0.0
+        support = float(edge_support_values[edge_id])
+        has_support = 1.0 if math.isfinite(support) else 0.0
+        link_value = 0.0
+        if link_support is not None:
+            link_value = float(link_support.get((source, target), 0.0))
         edge_features.append(
             [
                 1.0 if source == current_index else 0.0,
@@ -210,6 +249,10 @@ def build_qpg_graph_tensor(
                 src_weight,
                 dst_weight,
                 dst_residual + dst_count,
+                has_support,
+                max(0.0, support) / max_edge_support if has_support else 0.0,
+                max(0.0, link_value) / max_link_support,
+                same_haplotype - haplotype_switch,
             ]
         )
 

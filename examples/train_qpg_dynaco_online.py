@@ -965,6 +965,25 @@ def main() -> int:
         help="In paper-pipeline training, train each epoch on fresh generated GFAs instead of resampling a growing pool.",
     )
     parser.add_argument("-c", "--copy-numbers", default="ones")
+    parser.add_argument(
+        "--edge-support-file",
+        type=Path,
+        help="Optional CSV/TSV with source,target,support[,gfa] edge read-support targets.",
+    )
+    parser.add_argument(
+        "--link-support-file",
+        type=Path,
+        help="Optional CSV/TSV with source,target,support[,gfa] long-range read/link support.",
+    )
+    parser.add_argument(
+        "--haplotype-file",
+        type=Path,
+        help="Optional CSV/TSV with node,haplotype[,gfa] labels for haplotype switch penalties.",
+    )
+    parser.add_argument("--edge-loss-weight", default=0.5, type=float)
+    parser.add_argument("--link-loss-weight", default=0.5, type=float)
+    parser.add_argument("--haplotype-switch-weight", default=0.5, type=float)
+    parser.add_argument("--link-window", default=8, type=int, help="Maximum oriented-walk span for long-range pair support scoring.")
     parser.add_argument("-p", "--penalties", default="200,50,1")
     parser.add_argument("--alpha-qubo", default=1.1, type=float)
     parser.add_argument("--epochs", default=20, type=int)

@@ -1,4 +1,4 @@
-# MG-specific DyNACO training with a walk-coverage proxy reward.
+# MG-specific DyNACO training with a structural walk proxy reward.
 #
 # This config mirrors dynaco_paper_pipeline_mg.yaml but is intended for
 # train_walk_coverage_prior.py. The original QUBO-energy trainer remains
@@ -6,7 +6,7 @@
 
 paper_pipeline_train: true
 paper_pipeline_validation: true
-paper_pipeline_cache_dir: results/dynaco_mg/paper_pipeline_cache_walk_coverage
+paper_pipeline_cache_dir: results/dynaco_mg/paper_pipeline_cache_structural_walk
 paper_pipeline_annotators: mg
 paper_pipeline_test_sequences: 5
 paper_pipeline_shred_depth: 30
@@ -55,7 +55,7 @@ no_aco_eval: false
 
 wandb: true
 wandb_project: qpg-dynaco-mg
-wandb_tags: walk_coverage_proxy
+wandb_tags: structural_walk_proxy
 wandb_mode: online
 
-out: results/dynaco_mg/paper_pipeline_mg_walk_coverage.pt
+out: results/dynaco_mg/paper_pipeline_mg_structural_walk.pt
